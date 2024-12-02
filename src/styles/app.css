@@ -1,0 +1,400 @@
+@import "variables.css";
+@import "normalize.css";
+@import "font.css";
+@import "reset.css";
+
+/* colors defined in variables.css */
+:root {
+	/* font */
+	--sans: "Atlas Grotesk", -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
+	--serif: "Tiempos Text Web", Iowan Old Style, Times New Roman, Times, serif;
+	--mono: Menlo, Consolas, Monaco, monospace;
+
+	/* z-index */
+	--z-bottom: -100;
+	--z-middle: 0;
+	--z-top: 100;
+	--z-overlay: 1000;
+
+	/* presets (used in reset.css) */
+	--border-radius: 2px;
+	--font-body: var(--serif);
+	--font-form: var(--sans);
+	/*	--color-bg: var(--color-white);*/
+	--color-bg: #150317;
+
+	--color-dark-purple: #140014;
+	--color-lessdark-purple: #5c395c;
+	--color-off-purple: #e0d1e8;
+	--color-light-purple: #947594;
+	--color-lighter-purple: #efb9f0;
+	--color-bright-purple: #ff69f2;
+	--color-bright-yellow: #eba800;
+
+	--color-fg: var(--color-gray-900);
+	--color-primary: var(--color-black);
+	--color-link: var(--color-black);
+	--color-focus: var(--color-red);
+	--color-mark: var(--color-yellow);
+	--color-selection: var(--color-gray-300);
+	--color-border: var(--color-gray-300);
+	--color-button-bg: var(--color-gray-300);
+	--color-button-fg: var(--color-gray-900);
+	--color-button-hover: var(--color-gray-400);
+	--color-input-bg: var(--color-gray-50);
+	--color-input-fg: var(--color-gray-900);
+	--color-placeholder: var(--color-gray-500);
+
+/* "1" second duration */
+--1s: 1ms;
+}
+
+/* dark theme */
+/* this is a starting place for dark mode - test before deploying */
+
+/* @media screen and (prefers-color-scheme:dark) {
+	:root {
+		--color-bg: var(--color-gray-900);
+		--color-fg: var(--color-gray-100);
+		--color-primary: var(--color-white);
+		--color-link: var(--color-white);
+		--color-focus: var(--color-red);
+		--color-mark: var(--color-yellow);
+		--color-selection: var(--color-gray-600);
+		--color-border: var(--color-gray-600);
+		--color-button-bg: var(--color-gray-600);
+		--color-button-fg: var(--color-gray-100);
+		--color-button-hover: var(--color-gray-700);
+		--color-input-bg: var(--color-gray-800);
+		--color-input-fg: var(--color-gray-100);
+		--color-placeholder: var(--color-gray-400);
+		--color-text-outline: var(--color-bg);
+	}
+} */
+
+@media screen and (prefers-reduced-motion: no-preference) {
+	:root {
+		--1s: 1s;
+	}
+}
+
+h1 {
+	font-size: var(--48px, 48px);
+}
+
+h2 {
+	font-size: var(--36px, 36px);
+}
+
+h3 {
+	font-size: var(--28px, 28px);
+}
+
+h4 {
+	font-size: var(--24px, 24px);
+}
+
+h5 {
+	font-size: var(--22px, 22px);
+}
+
+h6 {
+	font-size: var(--20px, 20px);
+}
+
+header {
+	position: relative;
+	z-index: 99;
+}
+
+body {
+	overflow: hidden;
+	background: var(--color-bg);
+	touch-action: manipulation;
+}
+#content {
+	position: absolute;
+	top: 0;
+	left: 0;
+	font-family: var(--sans);
+	color: var(--color-off-purple);
+	font-size: 15px;
+}
+button {
+	font-family: var(--sans);
+}
+button:hover {
+	opacity: 0.9;
+}
+button:active {
+	opacity: 1;
+}
+.question {
+	position: fixed;
+	right: 0%;
+	width: 370px;
+	height: 100vh;
+	color: white;
+	bottom: 0px;
+	padding: 20px 0 0 0;
+	z-index: 1000;
+	font-size: 14px;
+	border-left:  1px solid var(--color-lessdark-purple);
+	transition: background 400ms cubic-bezier(0.250, 0.100, 0.250, 1.000); 
+	transition-timing-function: cubic-bezier(0.250, 0.100, 0.250, 1.000);
+	user-select: none;
+	pointer-events:  none;
+}
+select, button, input {
+	pointer-events:  auto !important;
+}
+@media (max-width: 860px) {
+	.question {
+		border-left:  none;
+		border-top:  1px solid #5c395c;
+	}
+}
+.question.longform {
+	height: 100vh;
+	background: rgba(21, 3, 23, 0.9);
+	z-index:  9999;
+}
+
+.progressBar {
+	position: absolute;
+	height: 3px;
+	background: var(--color-bright-purple);
+	transition: all 400ms cubic-bezier(0.250, 0.100, 0.250, 1.000); /* ease (default) */
+	transition-timing-function: cubic-bezier(0.250, 0.100, 0.250, 1.000); /* ease (default) */
+	top: auto;
+	bottom: 0px;
+	left: 0px;
+}
+.text, .answers {
+	position: absolute;	
+	width: 330px;
+	left: 20px;
+}
+.text {
+	top:  30px;
+}
+.answers.stage_explore {
+	bottom: auto;
+	top:  200px;
+}
+@media (width <= 860px) {
+	.question {
+		width: 100%;
+		height: 182px;
+		border-right:  none;
+	}
+	.question.longform::before {
+	background:  none;
+}
+	.text {
+		top:  10px;
+	}
+	.text, .answers {
+		position: absolute;	
+		width: 500px;
+		max-width: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+	.question.longform .text {
+		left:  50%;
+		top:  50%;
+		transform:  translate(-50%, -55%);
+		padding:  0 20px;
+	}
+	.answers.stage_explore { 
+		bottom:  55px;
+		padding:  0 10px;
+		top:  auto;
+	}
+}
+.answers {
+	text-align: center;
+	bottom: 50px;
+}
+.answerButton {
+	width: 49%;
+	font-size: 15px;
+	background: var(--color-off-purple);
+	color: var(--color-dark-purple);
+}
+.answerButton span {
+	padding: 1.5px 3px;
+	color: var(--color-light-purple);
+	border: 1px solid var(--color-light-purple);
+	border-radius: 3px;
+	font-size: 10px;
+	top: -2px;
+	font-weight: bold;
+	position: relative;
+}
+
+.smalltext {
+	color: var(--color-light-purple);
+	font-size:  13px;
+	margin:  5px 0 10px;
+}
+.stage_0 .back {
+	opacity: 0;
+	user-select: none;
+	pointer-events: none;
+}
+.answerButton:hover {
+	background: var(--color-off-purple);
+	color: black;
+}
+.answerItem {
+	display: block;
+	position: relative;
+	width: 100%;
+	padding: 10px 0;
+	background: var(--color-dark-purple);
+	border: 1px solid var(--color-light-purple);
+	color: var(--color-lighter-purple);
+	margin-top: -1px;
+	z-index: 1;
+	border-radius: 0;
+}
+.answerItem:hover {
+	z-index: 2;
+	background: var(--color-dark-purple);
+	color: #fff;
+}
+.answerItem.selected {
+	background: var(--color-lighter-purple);
+	color: black;
+	border: 1px solid var(--color-lighter-purple);
+}
+
+
+.panel .answerItem {
+	font-size: 14px;
+}
+
+.question .kicker {
+	color: var(--color-lighter-purple);
+	font-size: 11px;
+	padding: 0px;
+	margin: 0 0 3px;
+	text-transform: uppercase;
+}
+
+.text {
+	margin-top: 10px;
+	font-size: 14px;
+	line-height: 21px;
+}
+.text span {
+	color: var(--color-bright-yellow);
+}
+.text span.you {
+	color: rgb(252, 186, 3);
+}
+.text p a {
+	color: white;
+	text-decoration: underline;
+}
+.text p:first-child {
+	margin-top: 0px;
+}
+
+.text span.symbol {
+	color: var(--color-bright-purple);
+}
+.text span.circle {
+	width: 15px;
+	height: 15px;
+	display: inline-block;
+	border: 1px solid #eee;
+	border-radius: 30%;
+	margin-right: 0px;
+	margin-bottom: -2px;
+}
+.text span.personGif {
+	width: 11px;
+	height: 20px;
+	display: inline-block;
+	margin-right: 0px;
+	margin-left: 2px;
+	margin-bottom: -2px;
+	background-image:  url("assets/app/PersonIcon.png");
+	background-size:  cover;
+}
+.text a {
+	pointer-events: auto !important;
+}
+.skipToExplore {
+	background: none;
+	text-align: center;
+	text-align: left;
+	padding: 0;
+	margin-top: 10px;
+	font-size: 13px;
+	color: var(--color-light-purple);
+	position: absolute;
+	bottom: 30px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+.skipToExplore:hover {
+	color: var(--color-off-purple);
+	text-decoration: underline;
+	background:  none;
+}
+
+.text div.note {
+	color: var(--color-light-purple);
+	margin-top:  30px;
+	font-size:  13px;
+	line-height:  16px;
+}
+.text div.note a {
+	color: var(--color-light-purple);
+}
+@media (width <= 540px) {
+	.text, .answers {
+		width: 100%;
+		padding: 0 5px;
+	}
+	.text {
+		margin-top: 16px;
+		font-size: 14px;
+		line-height: 18px;
+	}
+}
+.imageContainer {
+	width:  100%;
+	max-width:  300px;
+	margin: 20px auto;
+}
+.imageContainer h3 {
+	font-size:  15px;
+	line-height:  18px;
+	margin-bottom:  15px;
+	font-weight:  bold;
+	color:  white;
+/* 	color:  var(--color-lighter-purple); */
+}
+.imageContainer .source {
+	font-size:  11px;
+	line-height:  13px;
+	margin-top:  10px;
+	color:  var(--color-light-purple);
+}
+.pink {
+	 color:  rgb(241, 82, 255) !important;
+}
+.pinkdot {
+	width: 10px;
+	height: 10px;
+	display: inline-block;
+	background:  rgb(241, 82, 255);
+	border-radius: 50%;
+	margin-right: 3px;
+	margin-bottom: 0px;
+}

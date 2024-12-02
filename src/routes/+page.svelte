@@ -1,2 +1,8 @@
-<h1>Welcome to SvelteKit</h1>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
+<!-- src/routes/+page.svelte -->
+<script>
+  import MentalHealthViz from '$lib/components/MentalHealthViz.svelte';
+  
+  export let data;
+</script>
+
+<MentalHealthViz data={data.data} />
