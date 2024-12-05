@@ -2,18 +2,22 @@
 <script>
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
+  import { fade, fly } from 'svelte/transition';
   import DynamicCluster from './Chart/DynamicCluster.svelte';
   import PersonalProfileForm from './PersonalProfileForm.svelte';
   import TribeVisualization from './TribeVisualization.svelte';
-  import { fade, fly } from 'svelte/transition';
-  import _ from 'lodash';
   
   export let data;
   let vizComponent;
+  let currentStep = 'clusters'; // 'clusters', 'form', or 'tribes'
   let isTransitioning = false;
   let currentStoryIndex = 0;
-  let showTribeExperience = false;
   let userData = null;
+
+  $: {
+    console.log('Current step:', currentStep);
+    console.log('User data:', userData);
+  }
   
   const storyStates = [
     {
@@ -33,12 +37,6 @@
       title: 'Mental Health Distribution',
       description: 'Overall, 51.5% of professionals reported having mental health conditions, with variations across different roles.',
       layout: 'byCondition'
-    },
-    {
-      id: 'personal',
-      title: 'Your Place in the Picture',
-      description: 'Now, let\'s find out where you fit in. Share a few details about yourself to see your mental health tribe.',
-      layout: 'gather'
     }
   ];
 
@@ -49,14 +47,13 @@
     isTransitioning = true;
     
     if (currentStoryIndex === storyStates.length - 1) {
-      // Transition to tribe experience
-      showTribeExperience = true;
+      console.log("Moving to form step");
+      currentStep = 'form';
+      isTransitioning = false;
     } else {
       const nextIndex = currentStoryIndex + 1;
-      const nextState = storyStates[nextIndex];
       try {
-        await vizComponent.updateLayout(nextState.layout);
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await vizComponent.updateLayout(storyStates[nextIndex].layout);
         currentStoryIndex = nextIndex;
       } finally {
         isTransitioning = false;
@@ -65,18 +62,24 @@
   }
 
   function handleProfileComplete(event) {
+    console.log("Profile completed with data:", event.detail);
     userData = event.detail;
+    setTimeout(() => {
+      console.log("Setting step to tribes");
+      currentStep = 'tribes';
+    }, 0);
   }
 
   onMount(() => {
+    console.log("MentalHealthViz mounted");
     if (vizComponent) {
       vizComponent.updateLayout(currentState.layout);
     }
   });
 </script>
 
-<div class="viz-wrapper">
-  {#if !showTribeExperience}
+{#if currentStep === 'clusters'}
+  <div class="viz-wrapper" in:fade={{duration: 500}}>
     <DynamicCluster
       {data}
       bind:this={vizComponent}
@@ -89,37 +92,78 @@
       >
         <h2>{currentState.title}</h2>
         <p>{currentState.description}</p>
-        {#if currentState.id === 'personal'}
-          <PersonalProfileForm 
-            on:complete={handleProfileComplete} 
-            class="profile-form"
-          />
-        {/if}
         <button 
           on:click={handleStoryProgress}
-          disabled={isTransitioning || (currentState.id === 'personal' && !userData)}
+          disabled={isTransitioning}
           class:transitioning={isTransitioning}
         >
-          {#if currentState.id === 'personal'}
-            {userData ? 'Find My Tribe →' : 'Fill in your details'}
-          {:else}
-            {isTransitioning ? 'Transitioning...' : 'Continue →'}
-          {/if}
+          {isTransitioning ? 'Transitioning...' : 'Continue →'}
         </button>
       </div>
     </DynamicCluster>
-  {:else}
-    <div in:fade={{duration: 800}}>
-      <TribeVisualization {data} {userData} />
+  </div>
+{:else if currentStep === 'form'}
+  <div class="form-wrapper" in:fade={{duration: 500}}>
+    <div class="form-content">
+      <h2>Find Your Mental Health Tribe</h2>
+      <p>Share a few details about yourself to see where you fit in the bigger picture.</p>
+      <PersonalProfileForm 
+        on:complete={handleProfileComplete} 
+      />
     </div>
-  {/if}
-</div>
+  </div>
+{:else if currentStep === 'tribes' && userData !== null}
+  <div class="tribe-wrapper" in:fade={{duration: 500}}>
+    <TribeVisualization 
+      data={data} 
+      {userData}
+    />
+  </div>
+{/if}
 
 <style>
-  .viz-wrapper {
+  .viz-wrapper, .form-wrapper, .tribe-wrapper {
     width: 100%;
     height: 100vh;
     position: relative;
+    background: var(--color-dark-purple);
+  }
+
+  .form-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+
+  .form-content {
+    text-align: center;
+    max-width: 600px;
+  }
+
+  h2 {
+    color: var(--color-bright-purple);
+    font-size: 2rem;
+    margin-bottom: 1rem;
+  }
+
+  p {
+    color: var(--color-off-purple);
+    font-size: 1.125rem;
+    margin-bottom: 2rem;
+    line-height: 1.6;
+  }
+
+  .debug {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px;
+    font-size: 12px;
+    z-index: 1000;
+    border-radius: 4px;
   }
 
   :global(.story-content) {
@@ -130,24 +174,6 @@
 
   :global(.story-content.transitioning) {
     opacity: 0.7;
-  }
-
-  :global(.story-content h2) {
-    color: var(--color-bright-purple);
-    font-size: 1.5rem;
-    line-height: 1.2;
-    margin-bottom: 1rem;
-  }
-
-  :global(.story-content p) {
-    font-size: 0.9375rem;
-    line-height: 1.6;
-    margin-bottom: 1.5rem;
-    opacity: 0.9;
-  }
-
-  :global(.profile-form) {
-    margin-bottom: 1.5rem;
   }
 
   :global(.story-content button) {
@@ -165,15 +191,5 @@
   :global(.story-content button:disabled) {
     opacity: 0.7;
     cursor: not-allowed;
-  }
-
-  :global(.story-content button:not(:disabled):hover) {
-    background: var(--color-off-purple);
-    transform: translateX(2px);
-  }
-
-  :global(.story-content button.transitioning) {
-    cursor: not-allowed;
-    opacity: 0.7;
   }
 </style>
