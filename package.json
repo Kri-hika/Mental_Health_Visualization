@@ -27,6 +27,7 @@
 		"d3": "^7.9.0",
 		"lodash": "^4.17.21",
 		"lodash.debounce": "^4.0.8",
+		"lucide-svelte": "^0.465.0",
 		"papaparse": "^5.4.1"
 	}
 }
