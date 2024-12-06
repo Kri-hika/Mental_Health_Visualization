@@ -1,4 +1,4 @@
-### Bar Chart 
+## Bar Chart 
 
 This bar chart implementation is very similar to visualization examples from the past homeworks. This makes the process of accessing the contents of the visualization a familiar one. The steps for accessing this bar chart are as follows:
 *NOTE: These instructions contain GIT commands, which can be efficiently ran through Git Bash. 
