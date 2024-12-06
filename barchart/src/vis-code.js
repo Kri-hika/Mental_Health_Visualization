@@ -12,7 +12,6 @@ const data = await d3.csv('./data/mental-health.csv', (d) => {
     };
 });
 
-// Group and summarize data by "occ" and "severity"
 const rollupData = d3.rollups(
     data,
     v => v.length,
@@ -23,15 +22,12 @@ const rollupData = d3.rollups(
     values: values.map(([subCategory, count]) => ({ subCategory, count }))
 }));
 
-// Extract all unique severity categories to define color scale
 const severityCategories = ["None", "Low", "Medium", "High"];
 
-// Define color scale for severity categories
 const colorScale = d3.scaleOrdinal()
     .domain(["None", "Low", "Medium", "High"])
     .range(["green", "blue", "orange", "red"]);
 
-// Resize observer function for container
 const resizeObserver = new ResizeObserver((entries) => {
     entries.forEach(entry => {
         if (entry.target.getAttribute('id') !== 'container1') return;
@@ -43,7 +39,6 @@ const resizeObserver = new ResizeObserver((entries) => {
     });
 });
 
-// Define SVG container for grouped bar chart
 export const BarChart = () => (
     `<div class='chart-container d-flex' id='container1' style='margin-left: 130px; margin-top: 100px;'>
         <svg id='bar-svg' width='100%' height='100%'></svg>
@@ -57,11 +52,10 @@ export function mountBarChart() {
 }
 
 function initChart() {
-    // Container setup
+
     const chartContainer = d3.select('#bar-svg');
     chartContainer.selectAll('*').remove();
 
-    // Set x-axis categories and y-axis range
     const xCategories = rollupData.map(d => d.category);
     const yExtents = d3.max(rollupData.map(d => d3.max(d.values.map(sub => sub.count))));
 
@@ -79,24 +73,23 @@ function initChart() {
         .range([size.height - margin.bottom, margin.top])
         .domain([0, yExtents]);
 
-    // Create x-axis and y-axis
     chartContainer.append('g')
         .attr('transform', `translate(0, ${size.height - margin.bottom})`)
-        .call(d3.axisBottom(xScale));
+        .call(d3.axisBottom(xScale))
+        .selectAll('text')
+        .style('font-size', '0.9rem');
 
     chartContainer.append('g')
         .attr('transform', `translate(${margin.left}, 0)`)
         .call(d3.axisLeft(yScale));
 
-    // Add x-axis label
     chartContainer.append('g')
-        .attr('transform', `translate(${(size.width / 2)}, ${size.height - margin.bottom + 40})`)
+        .attr('transform', `translate(${(size.width / 2) + 20}, ${size.height - margin.bottom + 50})`)
         .append('text')
         .text('Occupation')
-        .style('font-size', '1.1rem')
+        .style('font-size', '1.3rem')
         .style('text-anchor', 'middle');
 
-    // Add y-axis label
     chartContainer.append('g')
         .attr('transform', `translate(${margin.left - 40}, ${size.height / 2}) rotate(-90)`)
         .append('text')
@@ -104,7 +97,6 @@ function initChart() {
         .style('font-size', '1rem')
         .style('text-anchor', 'middle');
 
-    // Draw grouped bars
     chartContainer.append('g')
         .selectAll('g')
         .data(rollupData)
@@ -122,8 +114,7 @@ function initChart() {
         .duration(750)
         .attr('y', d => yScale(d.count))
         .attr('height', d => yScale(0) - yScale(d.count));
-    
-    // Draw numbers at the top of each bar
+
     chartContainer.append('g')
         .selectAll('g')
         .data(rollupData)
@@ -133,14 +124,13 @@ function initChart() {
         .data(d => d.values)
         .join('text')
         .attr('x', d => xSubScale(d.subCategory) + xSubScale.bandwidth() / 2)
-        .attr('y', d => yScale(d.count) - 5) // Slightly above the bar
+        .attr('y', d => yScale(d.count) - 5) 
         .attr('text-anchor', 'middle')
         .style('font-size', '0.8rem')
         .style('fill', 'black')
-        .text(d => d.count); // Display the count
+        .text(d => d.count);
 
 
-    // Add legend
     const legend = chartContainer.append('g')
         .attr('transform', `translate(${size.width - margin.right - 150}, ${margin.top})`);
 
@@ -159,7 +149,6 @@ function initChart() {
             .text(cat);
     });
 
-    // Add title
     chartContainer.append('g')
         .append('text')
         .attr('transform', `translate(${size.width / 2}, ${(margin.top / 2)- 10})`)
