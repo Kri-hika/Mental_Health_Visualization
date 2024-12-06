@@ -19,11 +19,12 @@
 
   // Adjusted margins
   $: margin = {
-    top: 80,
-    right: 200, 
+    top: 100,  // Leave enough space for the labels
+    right: 200,
     bottom: 60,
-    left: 80
+    left: 150 
   };
+  
 
   $: plotWidth = width - margin.left - margin.right;
   $: plotHeight = height - margin.top - margin.bottom;
@@ -150,14 +151,14 @@
       const points = data.filter(d => d.occupation === occupation);
       
       points.sort((a, b) => a.y - b.y);
-      const topPoints = points.slice(0, 3);
-      const avgX = d3.mean(topPoints, d => d.x);
-      const minY = d3.min(topPoints, d => d.y);
+      const topPoints = points.slice(0, Math.min(points.length, 5));
+      const avgX = d3.mean(points, d => d.x) + 120;
+      const minY = d3.min(points, d => d.y);
 
       const labelElement = d3.select(svg).select(`.occupation-label-${occupation}`);
       if (!labelElement.empty()) {
         const labelX = +labelElement.attr('x');
-        const labelY = margin.top - 30;
+        const labelY = margin.top - 10;
 
         const path = d3.path();
         path.moveTo(labelX, labelY);
@@ -165,9 +166,9 @@
         const midY = (labelY + minY) / 2;
         
         path.bezierCurveTo(
-          labelX, midY - 20,
-          avgX, midY + 20,
-          avgX, minY - 10
+          labelX, midY - 5,
+          avgX, midY + 40,
+          avgX, minY + 10
         );
 
         connectorGroup.append('path')
@@ -209,43 +210,43 @@
 
       case 'byOccupation':
         const occupationScale = d3.scalePoint()
-          .domain(occupations)
-          .range([margin.left + 50, width - margin.right - 50])
-          .padding(0.7);
+            .domain(occupations)
+            .range([margin.left + 50, width - margin.right - 50])
+            .padding(0.7);
 
         data.forEach(d => {
-          d.x = occupationScale(d.occupation);
-          d.y = centerY + (Math.random() - 0.5) * 50;
+            d.x = occupationScale(d.occupation);
+            d.y = centerY + (Math.random() - 0.5) * 50;
         });
 
-        simulation
-          .force('x', d3.forceX(d => occupationScale(d.occupation)).strength(0.3))
-          .force('y', d3.forceY(d => 
+    simulation
+        .force('x', d3.forceX(d => occupationScale(d.occupation)).strength(0.3))
+        .force('y', d3.forceY(d => 
             d.mentalHealth === 'Yes' ? centerY - 50 : centerY + 50
-          ).strength(0.2));
+        ).strength(0.2));
 
-        // Add labels
-        const labelGroup = d3.select(svg).select('.labels');
-        occupations.forEach(occupation => {
-          const group = data.filter(d => d.occupation === occupation);
-          const withCondition = group.filter(d => d.mentalHealth === 'Yes').length;
-          const percentage = Math.round((withCondition / group.length) * 100);
+    // Add labels
+    const labelGroup = d3.select(svg).select('.labels');
+    occupations.forEach(occupation => {
+        const group = data.filter(d => d.occupation === occupation);
+        const withCondition = group.filter(d => d.mentalHealth === 'Yes').length;
+        const percentageOfTotal = Math.round((withCondition / data.length) * 100);
 
-          labelGroup.append('text')
+        labelGroup.append('text')
             .attr('class', `occupation-label occupation-label-${occupation}`)
-            .attr('x', occupationScale(occupation))
-            .attr('y', margin.top - 30)
+            .attr('x', occupationScale(occupation) + 100)
+            .attr('y', margin.top - 40) // Adjust for spacing
             .attr('text-anchor', 'middle')
             .text(occupation);
 
-          labelGroup.append('text')
+        labelGroup.append('text')
             .attr('class', 'percentage-label')
-            .attr('x', occupationScale(occupation))
-            .attr('y', margin.top - 10)
+            .attr('x', occupationScale(occupation) + 100)
+            .attr('y', margin.top - 20)
             .attr('text-anchor', 'middle')
-            .text(`${percentage}% with condition`);
-        });
-        break;
+            .text(`${withCondition} (${percentageOfTotal}%)`);
+    });
+    break;
 
       case 'byCondition':
         data.forEach(d => {
@@ -263,16 +264,29 @@
           ).strength(0.3))
           .force('y', d3.forceY(centerY).strength(0.2));
 
+          // Count the number of individuals with and without conditions
+          const totalCount = data.length;
+          const withConditionCount = data.filter(d => d.mentalHealth === 'Yes').length;
+          const withoutConditionCount = data.filter(d => d.mentalHealth === 'No').length;
+
+          // Calculate percentages
+          const withConditionPercentage = ((withConditionCount / totalCount) * 100).toFixed(1);
+          const withoutConditionPercentage = ((withoutConditionCount / totalCount) * 100).toFixed(1);
+
+
         // Add condition labels
         const conditionLabelGroup = d3.select(svg).select('.labels');
         ['Yes', 'No'].forEach((condition, i) => {
-          const x = margin.left + plotWidth * (i === 0 ? 0.3 : 0.7);
-          conditionLabelGroup.append('text')
-            .attr('class', 'condition-label')
-            .attr('x', x)
-            .attr('y', margin.top - 20)
-            .attr('text-anchor', 'middle')
-            .text(condition === 'Yes' ? 'With Condition' : 'Without Condition');
+            const x = margin.left + plotWidth * (i === 0 ? 0.3 : 0.7);
+            const count = condition === 'Yes' ? withConditionCount : withoutConditionCount;
+            const percentage = condition === 'Yes' ? withConditionPercentage : withoutConditionPercentage;
+
+            conditionLabelGroup.append('text')
+              .attr('class', 'condition-label')
+              .attr('x', x)
+              .attr('y', margin.top - 20)
+              .attr('text-anchor', 'middle')
+              .text(condition === 'Yes' ? `With Condition: ${percentage}% (${count})` : `Without Condition: ${percentage}% (${count})`);
         });
         break;
     }
@@ -443,7 +457,7 @@
   .story-panel {
     position: absolute;
     top: 50%;
-    left: 20px;
+    left: 10px;
     transform: translateY(-50%);
     background: rgba(20, 0, 20, 0.85);
     padding: 1.5rem;
@@ -456,7 +470,7 @@
   .legend {
     position: absolute;
     top: 20px;
-    right: 20px;
+    left: 20px;
     background: rgba(20, 0, 20, 0.85);
     padding: 1rem;
     border-radius: 6px;
@@ -501,7 +515,7 @@
 
   :global(.condition-label) {
     fill: var(--color-bright-purple);
-    font-size: 0.875rem;
+    font-size: 0.975rem;
     font-weight: 500;
   }
 
@@ -535,4 +549,11 @@
   :global(.plot circle) {
     animation: fadeIn 0.5s ease-out forwards;
   }
+
+  @media (max-width: 768px) {
+  .story-panel {
+    left: 300; /* Adjust for smaller screens */
+  }
+}
+
 </style>

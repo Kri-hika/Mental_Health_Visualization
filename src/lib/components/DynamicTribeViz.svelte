@@ -1,732 +1,812 @@
-<!-- DynamicTribeViz.svelte -->
+
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
+  import { browser } from '$app/environment';
   import * as d3 from 'd3';
   import _ from 'lodash';
-  import { fade, fly } from 'svelte/transition';
-  import { 
-    processInitialData,
-    generateClusterInsights,
-    generateWorkLifeInsights,
-    generateTreatmentInsights,
-    generateStressInsights,
-    STRESS_COLORS,
-    WORK_LIFE_COLORS,
-    TREATMENT_COLORS
-  } from '../utils/dataUtils';
 
-  // Props
   export let data;
-  export let userData;
+  export let layout = 'gather';
+  console.log('Original Data:', data);
+  
 
-  // DOM references
-  let container;
+  const dispatch = createEventDispatcher();
   let svg;
-  let tooltipDiv;
-
-  // State variables
+  let container;
   let width = 1000;
   let height = 700;
-  let currentView = 'clusters';
-  let hoveredEntity = null;
-  let selectedEntity = null;
-  let processedData;
-  let insights;
-  let simulation;
-  let zoomBehavior;
+  let isInitialAnimation = true;
+  let tooltip;
+  let activeInsight = 'overview';
 
-  // Reactive declarations
-  $: containerDimensions = container?.getBoundingClientRect() || { width: 1000, height: 700 };
-  $: width = containerDimensions.width;
-  $: height = containerDimensions.height;
+  const margin = {
+    top: 80,
+    right: 200,
+    bottom: 60,
+    left: 80
+  };
 
-  // Initialize data and visualization
-  onMount(async () => {
-    processedData = processInitialData(data);
-    insights = {
-      clusters: generateClusterInsights(processedData),
-      worklife: generateWorkLifeInsights(processedData),
-      treatment: generateTreatmentInsights(processedData),
-      stress: generateStressInsights(processedData)
+  const colors = {
+    background: 'rgba(20, 0, 20, 0.95)',
+    primary: '#9D4EDD',
+    secondary: '#43E8D8',
+    highlight: '#FF6B9C',
+    text: '#B8A2CE',
+    textBright: '#E2D9F3',
+    accent: '#FF9E64',
+    secondary: '#43E8D8',  // Make sure this exists
+    highlight: '#FF6B9C'   // Make sure this exists
+  };
+
+
+  const insights = [
+    {
+      id: 'overview',
+      title: 'Mental Health Landscape',
+      description: 'Exploring the prevalence and patterns of mental health conditions across different groups.'
+    },
+    {
+      id: 'workStress',
+      title: 'Work Hours & Stress',
+      description: 'Higher work hours correlate strongly with increased stress levels and mental health conditions.'
+    },
+    {
+      id: 'sleepImpact',
+      title: 'Sleep Patterns',
+      description: 'Sleep duration shows a significant inverse relationship with stress levels and mental health.'
+    },
+    {
+      id: 'ageStress',
+      title: 'Age Distribution',
+      description: 'Mental health conditions vary significantly across age groups, with distinct patterns.'
+    },
+    {
+      id: 'treatment',
+      title: 'Treatment Access',
+      description: 'Examining the gaps between those needing and receiving mental health support.'
+    }
+  ];
+
+  function setupFilters() {
+    const defs = d3.select(svg).append('defs');
+    
+    // Glow effect
+    const filter = defs.append('filter')
+      .attr('id', 'glow')
+      .attr('x', '-50%')
+      .attr('y', '-50%')
+      .attr('width', '200%')
+      .attr('height', '200%');
+
+    filter.append('feGaussianBlur')
+      .attr('stdDeviation', '2')
+      .attr('result', 'coloredBlur');
+
+    const feMerge = filter.append('feMerge');
+    feMerge.append('feMergeNode').attr('in', 'coloredBlur');
+    feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+    // Gradient definitions
+    const gradient = defs.append('linearGradient')
+      .attr('id', 'stress-gradient')
+      .attr('gradientUnits', 'userSpaceOnUse')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%');
+
+    gradient.append('stop')
+      .attr('offset', '0%')
+      .attr('stop-color', colors.highlight);
+
+    gradient.append('stop')
+      .attr('offset', '100%')
+      .attr('stop-color', colors.secondary);
+  }
+
+  function setupTooltip() {
+    tooltip = d3.select(container)
+      .append('div')
+      .attr('class', 'tooltip')
+      .style('opacity', 0)
+      .style('position', 'absolute')
+      .style('pointer-events', 'none')
+      .style('background', colors.background)
+      .style('padding', '8px')
+      .style('border-radius', '4px')
+      .style('font-size', '12px')
+      .style('color', colors.text)
+      .style('z-index', 100);
+  }
+
+  const propertyMappings = {
+    mentalHealth: 'Mental_Health_Condition',
+    occupation: 'Occupation'
+  };
+
+  async function renderVisualization() {
+    const svgEl = d3.select(svg);
+    svgEl.selectAll('*').remove();
+    
+    setupFilters();
+
+    switch(activeInsight) {
+      case 'overview':
+        await renderOverview(svgEl);
+        break;
+      case 'workStress':
+        await renderWorkStressInsight(svgEl);
+        break;
+      case 'sleepImpact':
+        await renderSleepInsight(svgEl);
+        break;
+      case 'ageStress':
+        await renderAgeStressInsight(svgEl);
+        break;
+      case 'treatment':
+        await renderTreatmentInsight(svgEl);
+        break;
+    }
+  }
+
+  async function renderOverview(svg) {
+    // Clear previous content
+    svg.selectAll('*').remove();
+    
+    const g = svg.append('g')
+      .attr('class', 'overview-group')
+      .style('opacity', 0);
+
+    // Process data for stacked bar chart
+    const processedData = d3.rollup(data.mentalHealthData, // Update to use mentalHealthData
+      v => ({
+        total: v.length,
+        withCondition: v.filter(d => d.mentalHealth === 'Yes').length,
+        withoutCondition: v.filter(d => d.mentalHealth === 'No').length
+      }),
+      d => d.occupation
+    );
+
+    console.log('Processed Data:', processedData); // Debug log
+    
+
+
+    const stackedData = Array.from(processedData, ([occupation, stats]) => ({
+      occupation,
+      'With Condition': (stats.withCondition / stats.total) * 100,
+      'Without Condition': (stats.withoutCondition / stats.total) * 100,
+      total: stats.total
+    }));
+
+    console.log('Stacked Data:', stackedData); // Debug log
+
+    // Update width and height based on container
+    const width = svg.attr('width');
+    const height = svg.attr('height');
+
+    console.log('Dimensions:', { width, height }); // Debug log
+
+    // Create scales
+    const x = d3.scaleBand()
+      .domain(stackedData.map(d => d.occupation))
+      .range([margin.left, width - margin.right])
+      .padding(0.1);
+
+    const y = d3.scaleLinear()
+      .domain([0, 100]) // Assuming percentages
+      .range([height - margin.bottom, margin.top]);
+
+
+    // Create color scale
+    const color = d3.scaleOrdinal()
+      .domain(['With Condition', 'Without Condition'])
+      .range([colors.highlight, colors.secondary]);
+
+    // Stack the data
+    const stack = d3.stack()
+      .keys(['With Condition', 'Without Condition']);
+
+    const stackedSeries = stack(stackedData);
+
+    console.log('Stacked Series:', stackedSeries); // Debug log
+    console.log('X Scale Domain:', x.domain());
+    console.log('Y Scale Domain:', y.domain());
+    console.log('Color Scale Domain:', color.domain());
+    console.log('Color Scale Range:', color.range());
+
+
+    // Draw stacked bars
+    const bars = g.selectAll('g.stack')
+      .data(stackedSeries)
+      .join('g')
+      .attr('class', 'stack')
+      .attr('fill', d => color(d.key));
+
+    bars.selectAll('rect')
+      .data(d => d)
+      .join('rect')
+      .attr('x', d => x(d.data.occupation))
+      .attr('y', d => y(d[1]))
+      .attr('height', d => y(d[0]) - y(d[1]))
+      .attr('width', x.bandwidth())
+      .attr('opacity', 0.8)
+      .on('mouseover', function(event, d) {
+        const percentage = (d[1] - d[0]).toFixed(1);
+        d3.select(this)
+          .attr('opacity', 1)
+          .style('filter', 'url(#glow)');
+
+        tooltip
+          .style('opacity', 1)
+          .html(`
+            <div>${d.data.occupation}</div>
+            <div>${d3.select(this.parentNode).datum().key}: ${percentage}%</div>
+            <div>Total employees: ${d.data.total}</div>
+          `)
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
+      })
+      .on('mouseout', function() {
+        d3.select(this)
+          .attr('opacity', 0.8)
+          .style('filter', null);
+        tooltip.style('opacity', 0);
+      });
+
+    // Add axes
+    const xAxis = g.append('g')
+      .attr('transform', `translate(0,${height - margin.bottom})`)
+      .call(d3.axisBottom(x))
+      .call(g => {
+        g.select('.domain').attr('stroke', colors.text);
+        g.selectAll('.tick line').attr('stroke', colors.text);
+        g.selectAll('.tick text')
+          .attr('fill', colors.text)
+          .style('text-anchor', 'end')
+          .attr('dx', '-.8em')
+          .attr('dy', '.15em')
+          .attr('transform', 'rotate(-45)');
+      });
+
+    const yAxis = g.append('g')
+      .attr('transform', `translate(${margin.left},0)`)
+      .call(d3.axisLeft(y).tickFormat(d => d + '%'))
+      .call(g => {
+        g.select('.domain').attr('stroke', colors.text);
+        g.selectAll('.tick line').attr('stroke', colors.text);
+        g.selectAll('.tick text').attr('fill', colors.text);
+      });
+
+    // Add title
+    g.append('text')
+      .attr('class', 'title')
+      .attr('x', width / 2)
+      .attr('y', margin.top / 2)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.textBright)
+      .text('Mental Health Distribution by Occupation');
+
+    // Add legend
+    const legend = g.append('g')
+      .attr('class', 'legend')
+      .attr('transform', `translate(${width - margin.right + 40}, ${margin.top})`);
+
+    ['With Condition', 'Without Condition'].forEach((key, i) => {
+      const legendRow = legend.append('g')
+        .attr('transform', `translate(0, ${i * 20})`);
+
+      legendRow.append('rect')
+        .attr('width', 12)
+        .attr('height', 12)
+        .attr('fill', color(key));
+
+      legendRow.append('text')
+        .attr('x', 20)
+        .attr('y', 10)
+        .attr('fill', colors.text)
+        .style('font-size', '12px')
+        .text(key);
+    });
+
+    // Make sure the group is visible
+    g.style('opacity', 1);
+
+    // Log if we reached the end of the function
+    console.log('Render complete');
+  }
+
+  async function renderWorkStressInsight(svg) {
+    const g = svg.append('g')
+      .attr('class', 'work-stress-group')
+      .style('opacity', 0);
+
+    // Process work hours data
+    const workHoursData = Array.from(d3.rollup(data,
+      v => ({
+        total: v.length,
+        highStress: v.filter(d => d.Stress_Level === 'High').length
+      }),
+      d => Math.floor(d.Work_Hours / 10) * 10
+    )).map(([hours, stats]) => ({
+      hours,
+      stressRate: (stats.highStress / stats.total) * 100
+    })).sort((a, b) => a.hours - b.hours);
+
+    // Create scales
+    const x = d3.scaleBand()
+      .domain(workHoursData.map(d => d.hours))
+      .range([margin.left, width - margin.right])
+      .padding(0.1);
+
+    const y = d3.scaleLinear()
+      .domain([0, 100])
+      .range([height - margin.bottom, margin.top]);
+
+    // Draw bars
+    g.selectAll('rect')
+      .data(workHoursData)
+      .join('rect')
+      .attr('x', d => x(d.hours))
+      .attr('y', d => y(d.stressRate))
+      .attr('width', x.bandwidth())
+      .attr('height', d => height - margin.bottom - y(d.stressRate))
+      .attr('fill', colors.primary)
+      .attr('opacity', 0.8)
+      .on('mouseover', function(event, d) {
+        d3.select(this)
+          .attr('opacity', 1)
+          .style('filter', 'url(#glow)');
+
+        tooltip
+          .style('opacity', 1)
+          .html(`
+            <div>Work Hours: ${d.hours}-${d.hours + 10}</div>
+            <div>High Stress: ${d.stressRate.toFixed(1)}%</div>
+          `)
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
+      })
+      .on('mouseout', function() {
+        d3.select(this)
+          .attr('opacity', 0.8)
+          .style('filter', null);
+        tooltip.style('opacity', 0);
+      });
+
+    // Add axes
+    g.append('g')
+      .attr('transform', `translate(0,${height - margin.bottom})`)
+      .call(d3.axisBottom(x))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick line').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick text').attr('fill', colors.text));
+
+    g.append('g')
+      .attr('transform', `translate(${margin.left},0)`)
+      .call(d3.axisLeft(y).tickFormat(d => d + '%'))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick line').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick text').attr('fill', colors.text));
+
+    // Add labels
+    g.append('text')
+      .attr('x', width / 2)
+      .attr('y', height - 10)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.textBright)
+      .text('Weekly Work Hours');
+
+    g.append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('x', -height / 2)
+      .attr('y', margin.left - 40)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.textBright)
+      .text('High Stress Rate (%)');
+
+    // Animate in
+    g.transition()
+      .duration(1000)
+      .style('opacity', 1);
+  }
+
+  async function renderSleepInsight(svg) {
+    const g = svg.append('g')
+      .attr('class', 'sleep-insight-group')
+      .style('opacity', 0);
+
+    // Process sleep data
+    const sleepData = Array.from(d3.rollup(data,
+      v => ({
+        total: v.length,
+        withCondition: v.filter(d => d.Mental_Health_Condition === 'Yes').length
+      }),
+      d => Math.floor(d.Sleep_Hours)
+    )).map(([hours, stats]) => ({
+      hours,
+      rate: (stats.withCondition / stats.total) * 100
+    })).sort((a, b) => a.hours - b.hours);
+
+    // Create scales
+    const x = d3.scaleLinear()
+      .domain([d3.min(sleepData, d => d.hours), d3.max(sleepData, d => d.hours)])
+      .range([margin.left, width - margin.right]);
+
+    const y = d3.scaleLinear()
+      .domain([0, 100])
+      .range([height - margin.bottom, margin.top]);
+
+    // Create line generator
+    const line = d3.line()
+      .x(d => x(d.hours))
+      .y(d => y(d.rate))
+      .curve(d3.curveCatmullRom);
+
+    // Draw path
+    g.append('path')
+      .datum(sleepData)
+      .attr('fill', 'none')
+      .attr('stroke', colors.highlight)
+      .attr('stroke-width', 2)
+      .attr('d', line)
+      .style('filter', 'url(#glow)');
+
+    // Add data points
+    g.selectAll('circle')
+      .data(sleepData)
+      .join('circle')
+      .attr('cx', d => x(d.hours))
+      .attr('cy', d => y(d.rate))
+      .attr('r', 4)
+      .attr('fill', colors.highlight)
+      .attr('opacity', 0.8)
+      .on('mouseover', function(event, d) {
+        d3.select(this)
+          .attr('r', 6)
+          .attr('opacity', 1);
+
+        tooltip
+          .style('opacity', 1)
+          .html(`
+            <div>Sleep Hours: ${d.hours}</div>
+            <div>Mental Health Conditions: ${d.rate.toFixed(1)}%</div>
+          `)
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
+      })
+      .on('mouseout', function() {
+        d3.select(this)
+          .attr('r', 4)
+          .attr('opacity', 0.8);
+        tooltip.style('opacity', 0);
+      });
+
+    // Add axes
+    g.append('g')
+      .attr('transform', `translate(0,${height - margin.bottom})`)
+      .call(d3.axisBottom(x).ticks(6))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick line').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick text').attr('fill', colors.text));
+
+    g.append('g')
+      .attr('transform', `translate(${margin.left},0)`)
+      .call(d3.axisLeft(y).tickFormat(d => d + '%'))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick line').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick text').attr('fill', colors.text));
+
+    // Add labels and title
+    g.append('text')
+      .attr('x', width / 2)
+      .attr('y', margin.top / 2)
+      .attr('text-anchor', 'middle')
+      .attr('fill', colors.textBright)
+      .attr('class', 'chart-title')
+      .text('Sleep Hours vs Mental Health Conditions');
+
+    // Animate in
+    g.transition()
+      .duration(1000)
+      .style('opacity', 1);
+  }
+
+  async function renderAgeStressInsight(svg) {
+  const g = svg.append('g')
+    .attr('class', 'age-stress-group')
+    .style('opacity', 0);
+
+  // Process age data
+  const ageRanges = [  // Renamed from ageGroups
+    { range: '18-29', min: 18, max: 29 },
+    { range: '30-39', min: 30, max: 39 },
+    { range: '40-49', min: 40, max: 49 },
+    { range: '50-59', min: 50, max: 59 },
+    { range: '60+', min: 60, max: Infinity }
+  ];
+
+  const ageData = ageRanges.map(group => {  // Using ageRanges instead of ageGroups
+    const groupData = data.filter(d => 
+      d.Age >= group.min && d.Age <= group.max
+    );
+    return {
+      range: group.range,
+      total: groupData.length,
+      highStress: groupData.filter(d => d.Stress_Level === 'High').length,
+      withCondition: groupData.filter(d => d.Mental_Health_Condition === 'Yes').length
+    };
+  });
+
+    // Set up scales
+    const x = d3.scaleBand()
+      .domain(ageData.map(d => d.range))
+      .range([margin.left, width - margin.right])
+      .padding(0.2);
+
+    const y = d3.scaleLinear()
+      .domain([0, 100])
+      .range([height - margin.bottom, margin.top]);
+
+    // Create grouped bars
+    const subgroups = ['highStress', 'withCondition'];
+    const xSubgroup = d3.scaleBand()
+      .domain(subgroups)
+      .range([0, x.bandwidth()])
+      .padding(0.05);
+
+    const color = d3.scaleOrdinal()
+      .domain(subgroups)
+      .range([colors.highlight, colors.primary]);
+
+    // Draw bars (renamed variable here)
+  const ageBarGroups = g.selectAll('.age-group')  // Renamed from ageGroups
+    .data(ageData)
+    .join('g')
+    .attr('class', 'age-group')
+    .attr('transform', d => `translate(${x(d.range)},0)`);
+
+  ageBarGroups.selectAll('rect')  // Use new variable name
+    .data(d => subgroups.map(key => ({
+      key,
+      value: (d[key] / d.total) * 100
+    })))
+    .join('rect')
+    .attr('x', d => xSubgroup(d.key))
+    .attr('y', d => y(d.value))
+    .attr('width', xSubgroup.bandwidth())
+    .attr('height', d => height - margin.bottom - y(d.value))
+    .attr('fill', d => color(d.key))
+    .attr('opacity', 0.8)
+      .on('mouseover', function(event, d) {
+        d3.select(this)
+          .attr('opacity', 1)
+          .style('filter', 'url(#glow)');
+
+        tooltip
+          .style('opacity', 1)
+          .html(`
+            <div>${d.key === 'highStress' ? 'High Stress' : 'With Condition'}</div>
+            <div>${d.value.toFixed(1)}%</div>
+          `)
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
+      })
+      .on('mouseout', function() {
+        d3.select(this)
+          .attr('opacity', 0.8)
+          .style('filter', null);
+        tooltip.style('opacity', 0);
+      });
+
+    // Add axes
+    g.append('g')
+      .attr('transform', `translate(0,${height - margin.bottom})`)
+      .call(d3.axisBottom(x))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick line').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick text').attr('fill', colors.text));
+
+    g.append('g')
+      .attr('transform', `translate(${margin.left},0)`)
+      .call(d3.axisLeft(y).tickFormat(d => d + '%'))
+      .call(g => g.select('.domain').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick line').attr('stroke', colors.text))
+      .call(g => g.selectAll('.tick text').attr('fill', colors.text));
+
+    // Animate in
+    g.transition()
+      .duration(1000)
+      .style('opacity', 1);
+  }
+
+  async function renderTreatmentInsight(svg) {
+    const g = svg.append('g')
+      .attr('class', 'treatment-group')
+      .style('opacity', 0);
+
+    // Process treatment data
+    const treatmentData = Array.from(d3.rollup(data,
+      v => ({
+        total: v.length,
+        withCondition: v.filter(d => d.Mental_Health_Condition === 'Yes').length,
+        seekingTreatment: v.filter(d => 
+          d.Mental_Health_Condition === 'Yes' && 
+          d.Consultation_History === 'Yes'
+        ).length
+      }),
+      d => d.Occupation
+    )).map(([occupation, stats]) => ({
+      occupation,
+      conditionRate: (stats.withCondition / stats.total) * 100,
+      treatmentRate: (stats.seekingTreatment / stats.withCondition) * 100
+    }));
+
+    // Create scales
+    const x = d3.scaleBand()
+      .domain(treatmentData.map(d => d.occupation))
+      .range([margin.left, width - margin.right])
+      .padding(0.2);
+
+    const y = d3.scaleLinear()
+      .domain([0, 100])
+      .range([height - margin.bottom, margin.top]);
+
+    // Draw bars
+    g.selectAll('.treatment-bars')
+      .data(treatmentData)
+      .join('g')
+      .attr('class', 'treatment-bars')
+      .attr('transform', d => `translate(${x(d.occupation)},0)`)
+      .call(g => {
+        g.append('rect')
+          .attr('x', 0)
+          .attr('y', d => y(d.conditionRate))
+          .attr('width', x.bandwidth() / 2)
+          .attr('height', d => height - margin.bottom - y(d.conditionRate))
+          .attr('fill', colors.primary)
+          .attr('opacity', 0.8);
+
+        g.append('rect')
+          .attr('x', x.bandwidth() / 2)
+          .attr('y', d => y(d.treatmentRate))
+          .attr('width', x.bandwidth() / 2)
+          .attr('height', d => height - margin.bottom - y(d.treatmentRate))
+          .attr('fill', colors.highlight)
+          .attr('opacity', 0.8);
+      });
+
+    // Add axes and labels
+    // ... (similar to previous axes code)
+
+    // Animate in
+    g.transition()
+      .duration(1000)
+      .style('opacity', 1);
+  }
+
+
+  onMount(() => {
+    if (!browser) return;
+    
+    const updateDimensions = () => {
+      const rect = container.getBoundingClientRect();
+      width = rect.width || 1000;
+      height = rect.height || 700;
+      renderVisualization();
     };
 
-    initializeVisualization();
-    setupResponsiveness();
-
+    updateDimensions();
+    setupTooltip();
+    
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    resizeObserver.observe(container);
+    
+    console.log('Stacked Series:', stackedSeries);
+    console.log('SVG Dimensions:', { width, height });
+    
     return () => {
+      resizeObserver.disconnect();
       if (simulation) simulation.stop();
     };
   });
 
-  function setupResponsiveness() {
-    const resizeObserver = new ResizeObserver(() => {
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        width = rect.width;
-        height = rect.height;
-        updateVisualization();
-      }
-    });
-
-    if (container) {
-      resizeObserver.observe(container);
+  $: {
+    if (svg && data) {
+      renderVisualization();
     }
-
-    return () => resizeObserver.disconnect();
-  }
-
-  function initializeVisualization() {
-    // Initialize D3 zoom behavior
-    zoomBehavior = d3.zoom()
-      .scaleExtent([0.5, 4])
-      .on('zoom', handleZoom);
-
-    d3.select(svg)
-      .call(zoomBehavior)
-      .call(zoomBehavior.transform, d3.zoomIdentity);
-
-    updateVisualization();
-  }
-
-  function handleZoom(event) {
-    d3.select(svg).select('.viz-container')
-      .attr('transform', event.transform);
-  }
-
-  function updateVisualization() {
-    switch(currentView) {
-      case 'clusters':
-        renderClusterView();
-        break;
-      case 'worklife':
-        renderWorkLifeView();
-        break;
-      case 'treatment':
-        renderTreatmentView();
-        break;
-      case 'stress':
-        renderStressView();
-        break;
-    }
-  }
-
-  function renderClusterView() {
-    const svg = d3.select(svg);
-    svg.selectAll('*').remove();
-
-    const vizContainer = svg.append('g')
-      .attr('class', 'viz-container');
-
-    const clusterData = Object.entries(insights.clusters).map(([name, data]) => ({
-      id: name,
-      ...data,
-      radius: Math.sqrt(data.count) * 5
-    }));
-
-    // Create force simulation
-    simulation = d3.forceSimulation(clusterData)
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('charge', d3.forceManyBody().strength(-200))
-      .force('collide', d3.forceCollide().radius(d => d.radius + 2))
-      .on('tick', () => {
-        clusters.attr('transform', d => `translate(${d.x},${d.y})`);
-      });
-
-    // Create cluster groups
-    const clusters = vizContainer.selectAll('.cluster')
-      .data(clusterData)
-      .enter()
-      .append('g')
-      .attr('class', 'cluster')
-      .on('mouseover', (event, d) => {
-        hoveredEntity = d;
-        showTooltip(event, d);
-      })
-      .on('mouseout', () => {
-        hoveredEntity = null;
-        hideTooltip();
-      })
-      .on('click', (event, d) => {
-        selectedEntity = selectedEntity === d ? null : d;
-        event.stopPropagation();
-      });
-
-    // Add cluster circles
-    clusters.append('circle')
-      .attr('r', d => d.radius)
-      .style('fill', d => {
-        const [balance, stress] = d.id.split('-');
-        return d3.interpolateRgb(WORK_LIFE_COLORS[balance], STRESS_COLORS[stress])(0.5);
-      })
-      .style('opacity', 0.7)
-      .style('stroke', '#fff')
-      .style('stroke-opacity', 0.3);
-
-    // Add cluster labels
-    clusters.append('text')
-      .text(d => d.id)
-      .attr('text-anchor', 'middle')
-      .attr('dy', '0.3em')
-      .style('fill', '#fff')
-      .style('font-size', '12px')
-      .style('pointer-events', 'none');
-
-    // Add particles for visual interest
-    clusters.each(function(d) {
-      const particleCount = Math.floor(d.radius / 3);
-      const particles = d3.range(particleCount).map(() => ({
-        angle: Math.random() * 2 * Math.PI,
-        radius: Math.random() * d.radius * 0.8,
-        speed: Math.random() * 0.02 + 0.01
-      }));
-
-      const particleGroup = d3.select(this)
-        .append('g')
-        .attr('class', 'particles');
-
-      particles.forEach(p => {
-        particleGroup.append('circle')
-          .attr('r', 1.5)
-          .style('fill', '#fff')
-          .style('opacity', 0.6);
-      });
-
-      // Animate particles
-      function updateParticles() {
-        particleGroup.selectAll('circle')
-          .data(particles)
-          .attr('cx', p => Math.cos(p.angle) * p.radius)
-          .attr('cy', p => Math.sin(p.angle) * p.radius);
-
-        particles.forEach(p => {
-          p.angle += p.speed;
-        });
-
-        requestAnimationFrame(updateParticles);
-      }
-
-      updateParticles();
-    });
-  }
-
-  function renderWorkLifeView() {
-    const svg = d3.select(svg);
-    svg.selectAll('*').remove();
-
-    const vizContainer = svg.append('g')
-      .attr('class', 'viz-container');
-
-    const workLifeData = Object.entries(insights.worklife).map(([balance, data]) => ({
-      balance,
-      ...data
-    }));
-
-    // Create layout
-    const padding = 40;
-    const innerWidth = width - (padding * 2);
-    const innerHeight = height - (padding * 2);
-
-    // Scales
-    const xScale = d3.scaleBand()
-      .domain(workLifeData.map(d => d.balance))
-      .range([0, innerWidth])
-      .padding(0.1);
-
-    const yScale = d3.scaleLinear()
-      .domain([0, d3.max(workLifeData, d => d.count)])
-      .range([innerHeight, 0]);
-
-    // Create axes
-    const xAxis = d3.axisBottom(xScale);
-    const yAxis = d3.axisLeft(yScale);
-
-    vizContainer.append('g')
-      .attr('transform', `translate(${padding},${height - padding})`)
-      .call(xAxis);
-
-    vizContainer.append('g')
-      .attr('transform', `translate(${padding},${padding})`)
-      .call(yAxis);
-
-    // Create stacked bars
-    const stackedData = d3.stack()
-      .keys(['Low', 'Medium', 'High'])
-      .value((d, key) => d.avgStressDistribution[key] || 0)
-      (workLifeData);
-
-    const categoryColors = [
-      STRESS_COLORS.Low,
-      STRESS_COLORS.Medium,
-      STRESS_COLORS.High
-    ];
-
-    const layers = vizContainer.selectAll('.layer')
-      .data(stackedData)
-      .enter()
-      .append('g')
-      .attr('class', 'layer')
-      .style('fill', (d, i) => categoryColors[i]);
-
-    layers.selectAll('rect')
-      .data(d => d)
-      .enter()
-      .append('rect')
-      .attr('x', (d, i) => xScale(workLifeData[i].balance) + padding)
-      .attr('y', d => yScale(d[1]) + padding)
-      .attr('height', d => yScale(d[0]) - yScale(d[1]))
-      .attr('width', xScale.bandwidth())
-      .on('mouseover', (event, d) => {
-        hoveredEntity = d;
-        showTooltip(event, d);
-      })
-      .on('mouseout', () => {
-        hoveredEntity = null;
-        hideTooltip();
-      });
-  }
-
-  function renderTreatmentView() {
-    const svg = d3.select(svg);
-    svg.selectAll('*').remove();
-
-    const vizContainer = svg.append('g')
-      .attr('class', 'viz-container');
-
-    const treatmentData = Object.entries(insights.treatment.byOccupation)
-      .map(([occupation, data]) => ({
-        occupation,
-        ...data,
-        treatmentRate: data.treated / data.total
-      }));
-
-    // Create hexbin layout
-    const hexbin = d3.hexbin()
-      .radius(30)
-      .extent([[0, 0], [width, height]]);
-
-    const points = treatmentData.flatMap(d => 
-      Array(d.total).fill().map(() => [
-        Math.random() * width,
-        Math.random() * height,
-        d
-      ])
-    );
-
-    const bins = hexbin(points);
-
-    // Color scale
-    const colorScale = d3.scaleSequential(d3.interpolateRgb(TREATMENT_COLORS.Untreated, TREATMENT_COLORS.Treated))
-      .domain([0, 1]);
-
-    // Draw hexagons
-    vizContainer.selectAll('path')
-      .data(bins)
-      .enter()
-      .append('path')
-      .attr('d', hexbin.hexagon())
-      .attr('transform', d => `translate(${d.x},${d.y})`)
-      .attr('fill', d => {
-        const avgTreatmentRate = d3.mean(d, p => p[2].treatmentRate);
-        return colorScale(avgTreatmentRate);
-      })
-      .attr('stroke', '#fff')
-      .attr('stroke-opacity', 0.3)
-      .on('mouseover', (event, d) => {
-        hoveredEntity = d;
-        showTooltip(event, d);
-      })
-      .on('mouseout', () => {
-        hoveredEntity = null;
-        hideTooltip();
-      });
-  }
-
-  function renderStressView() {
-    const svg = d3.select(svg);
-    svg.selectAll('*').remove();
-
-    const vizContainer = svg.append('g')
-      .attr('class', 'viz-container');
-
-    const stressData = Object.entries(insights.stress).map(([level, data]) => ({
-      level,
-      ...data
-    }));
-
-    // Create radial layout
-    const radius = Math.min(width, height) / 2 - 100;
-    const angleScale = d3.scalePoint()
-      .domain(Object.keys(insights.stress))
-      .range([0, Math.PI * 2]);
-
-    vizContainer.attr('transform', `translate(${width/2},${height/2})`);
-
-    // Create stress level segments
-    const arc = d3.arc()
-      .innerRadius(0)
-      .outerRadius(radius)
-      .startAngle(d => angleScale(d.level) - Math.PI/3)
-      .endAngle(d => angleScale(d.level) + Math.PI/3);
-
-    const segments = vizContainer.selectAll('.segment')
-      .data(stressData)
-      .enter()
-      .append('path')
-      .attr('class', 'segment')
-      .attr('d', arc)
-      .style('fill', d => STRESS_COLORS[d.level])
-      .style('opacity', 0.6)
-      .on('mouseover', (event, d) => {
-        hoveredEntity = d;
-        showTooltip(event, d);
-      })
-      .on('mouseout', () => {
-        hoveredEntity = null;
-        hideTooltip();
-      });
-
-    // Add labels
-    vizContainer.selectAll('.label')
-      .data(stressData)
-      .enter()
-      .append('text')
-      .attr('class', 'label')
-      .attr('transform', d => {
-        const angle = angleScale(d.level) - Math.PI/2;
-        const x = Math.cos(angle) * (radius + 20);
-        const y = Math.sin(angle) * (radius + 20);
-        return `translate(${x},${y})`;
-      })
-      .attr('text-anchor', 'middle')
-      .style('fill', '#fff')
-      .style('font-size', '14px')
-      .text(d => d.level);
-  }
-
-  function showTooltip(event, data) {
-    const tooltip = d3.select(tooltipDiv);
-    const [x, y] = d3.pointer(event);
-
-    tooltip
-      .style('left', `${x + 10}px`)
-      .style('top', `${y + 10}px`)
-      .style('opacity', 1)
-      .html(generateTooltipContent(data));
-  }
-
-  function hideTooltip() {
-    d3.select(tooltipDiv)
-      .style('opacity', 0);
-  }
-
-  function generateTooltipContent(data) {
-    switch(currentView) {
-      case 'clusters':
-        return `
-          <div class="tooltip-content">
-            <h3>${data.id}</h3>
-            <p>Population: ${data.count}</p>
-            <p>Avg Age: ${data.avgAge.toFixed(1)}</p>
-            <p>Mental Health Rate: ${(data.mentalHealthRate * 100).toFixed(1)}%</p>
-            <p>Consultation Rate: ${(data.consultationRate * 100).toFixed(1)}%</p>
-          </div>
-        `;
-      case 'worklife':
-        return `
-          <div class="tooltip-content">
-            <h3>${data.balance}</h3>
-            <p>Work Hours: ${data.avgWorkHours.toFixed(1)}</p>
-            <p>Sleep Hours: ${data.avgSleepHours.toFixed(1)}</p>
-            <p>Physical Activity: ${data.avgPhysicalActivity.toFixed(1)} hrs/week</p>
-          </div>
-        `;
-      case 'treatment':
-        return `
-          <div class="tooltip-content">
-            <h3>${data[0]?.occupation || 'Treatment Group'}</h3>
-            <p>Population: ${data.length}</p>
-            <p>Treatment Rate: ${(data[0]?.[2].treatmentRate * 100).toFixed(1)}%</p>
-            <p>High Stress Cases: ${data[0]?.[2].highStress || 0}</p>
-          </div>
-        `;
-      case 'stress':
-        return `
-          <div class="tooltip-content">
-            <h3>${data.level} Stress</h3>
-            <p>Population: ${data.count}</p>
-            <p>Avg Sleep: ${data.avgSleep.toFixed(1)} hrs</p>
-            <p>Avg Work: ${data.avgWork.toFixed(1)} hrs/week</p>
-            <p>Mental Health Rate: ${(data.mentalHealthRate * 100).toFixed(1)}%</p>
-          </div>
-        `;
-      default:
-        return '';
-    }
-  }
-
-  function handleDimensionChange(event) {
-    currentView = event.detail;
-    selectedEntity = null;
-    updateVisualization();
-  }
-
-  // Handle window resize
-  let resizeTimeout;
-  function handleResize() {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(() => {
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        width = rect.width;
-        height = rect.height;
-        updateVisualization();
-      }
-    }, 250);
   }
 </script>
 
-<svelte:window on:resize={handleResize} />
-
-<div class="dynamic-tribe-viz" bind:this={container}>
-  <svg bind:this={svg} {width} {height}>
-    <defs>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-        <feMerge>
-          <feMergeNode in="coloredBlur"/>
-          <feMergeNode in="SourceGraphic"/>
-        </feMerge>
-      </filter>
-    </defs>
-  </svg>
-
-  <div class="tooltip" bind:this={tooltipDiv}></div>
-
-  <div class="controls">
-    <div class="dimension-controls">
+<div class="viz-container" bind:this={container}>
+  <!-- Navigation -->
+  <div class="nav-panel">
+    {#each insights as insight}
       <button 
-        class="dimension-button" 
-        class:active={currentView === 'clusters'}
-        on:click={() => handleDimensionChange({ detail: 'clusters' })}
+        class="nav-button"
+        class:active={activeInsight === insight.id}
+        on:click={() => activeInsight = insight.id}
       >
-        <span class="icon">🌐</span>
-        <span class="label">Mental Health Clusters</span>
+        {insight.title}
       </button>
-      <button 
-        class="dimension-button"
-        class:active={currentView === 'worklife'}
-        on:click={() => handleDimensionChange({ detail: 'worklife' })}
-      >
-        <span class="icon">⚖️</span>
-        <span class="label">Work-Life Balance</span>
-      </button>
-      <button 
-        class="dimension-button"
-        class:active={currentView === 'treatment'}
-        on:click={() => handleDimensionChange({ detail: 'treatment' })}
-      >
-        <span class="icon">🏥</span>
-        <span class="label">Treatment Access</span>
-      </button>
-      <button 
-        class="dimension-button"
-        class:active={currentView === 'stress'}
-        on:click={() => handleDimensionChange({ detail: 'stress' })}
-      >
-        <span class="icon">📊</span>
-        <span class="label">Stress Patterns</span>
-      </button>
-    </div>
+    {/each}
   </div>
 
-  {#if selectedEntity}
-    <div class="details-panel" transition:fly="{{ x: 300, duration: 300 }}">
-      <h2>{currentView === 'clusters' ? selectedEntity.id : selectedEntity.level || 'Details'}</h2>
-      
-      {#if currentView === 'clusters'}
-        <div class="details-content">
-          <div class="stat-group">
-            <h3>Population Statistics</h3>
-            <p>Total Members: {selectedEntity.count}</p>
-            <p>Average Age: {selectedEntity.avgAge.toFixed(1)}</p>
-            <p>Mental Health Rate: {(selectedEntity.mentalHealthRate * 100).toFixed(1)}%</p>
-          </div>
-          
-          <div class="stat-group">
-            <h3>Lifestyle Metrics</h3>
-            <p>Avg Sleep: {selectedEntity.avgSleep.toFixed(1)} hrs</p>
-            <p>Avg Work: {selectedEntity.avgWork.toFixed(1)} hrs/week</p>
-          </div>
+  <!-- Main Visualization -->
+  <svg bind:this={svg} {width} {height}>
+    <g class="viz-group" />
+  </svg>
 
-          <div class="stat-group">
-            <h3>Risk Analysis</h3>
-            <div class="risk-bars">
-              {#each Object.entries(selectedEntity.riskScore) as [risk, score]}
-                <div class="risk-bar">
-                  <span class="risk-label">{risk}</span>
-                  <div class="bar-container">
-                    <div class="bar" style="width: {score * 100}%"></div>
-                  </div>
-                  <span class="risk-value">{(score * 100).toFixed(0)}%</span>
-                </div>
-              {/each}
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      {#if currentView === 'worklife'}
-        <div class="details-content">
-          <h3>Work-Life Distribution</h3>
-          <div class="distribution-bars">
-            {#each Object.entries(selectedEntity.workDistribution) as [category, count]}
-              <div class="distribution-bar">
-                <span class="category-label">{category}</span>
-                <div class="bar-container">
-                  <div 
-                    class="bar" 
-                    style="width: {(count / selectedEntity.count * 100)}%"
-                  ></div>
-                </div>
-                <span class="count-value">{count}</span>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </div>
-  {/if}
+  <!-- Insight Panel -->
+  <div class="insight-panel">
+    <h3>{insights.find(i => i.id === activeInsight)?.title}</h3>
+    <p>{insights.find(i => i.id === activeInsight)?.description}</p>
+  </div>
 </div>
 
 <style>
-  .dynamic-tribe-viz {
+  .viz-container {
+    position: relative;
     width: 100%;
     height: 100%;
-    position: relative;
     background: var(--color-dark-purple);
     overflow: hidden;
   }
 
-  .controls {
+  .nav-panel {
     position: absolute;
-    top: 20px;
+    top: 1rem;
     left: 50%;
     transform: translateX(-50%);
+    display: flex;
+    gap: 0.5rem;
     z-index: 10;
   }
 
-  .dimension-controls {
-    display: flex;
-    gap: 1rem;
-  }
-
-  .dimension-button {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    background: rgba(20, 0, 40, 0.85);
-    border: 1px solid rgba(157, 78, 246, 0.2);
-    border-radius: 8px;
-    color: var(--color-text);
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-
-  .dimension-button:hover {
-    border-color: var(--color-bright-purple);
+  .nav-button {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: 1px solid var(--color-bright-purple);
     color: var(--color-bright-purple);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
   }
 
-  .dimension-button.active {
+  .nav-button.active {
     background: var(--color-bright-purple);
     color: var(--color-dark-purple);
-    border-color: var(--color-bright-purple);
   }
 
-  .tooltip {
+  .insight-panel {
     position: absolute;
-    padding: 1rem;
-    background: rgba(20, 0, 40, 0.95);
-    border: 1px solid rgba(157, 78, 246, 0.3);
-    border-radius: 8px;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    max-width: 300px;
-    backdrop-filter: blur(8px);
-  }
-
-  .details-panel {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    width: 300px;
-    background: rgba(20, 0, 40, 0.95);
-    border: 1px solid rgba(157, 78, 246, 0.3);
-    border-radius: 8px;
+    left: 2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(20, 0, 20, 0.85);
     padding: 1.5rem;
+    border-radius: 8px;
     backdrop-filter: blur(8px);
+    max-width: 280px;
+    z-index: 10;
   }
 
-  .details-panel h2 {
+  .insight-panel h3 {
     color: var(--color-bright-purple);
     margin: 0 0 1rem 0;
-    font-size: 1.25rem;
   }
 
-  .stat-group {
-    margin-bottom: 1.5rem;
+  .insight-panel p {
+    color: var(--color-off-purple);
+    margin: 0;
+    line-height: 1.5;
   }
 
-  .stat-group h3 {
-    color: var(--color-text);
-    font-size: 1rem;
-    margin: 0 0 0.5rem 0;
+  :global(.viz-group) {
+    transition: opacity 0.3s;
   }
 
-  .risk-bars, .distribution-bars {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .risk-bar, .distribution-bar {
-    display: grid;
-    grid-template-columns: 100px 1fr 50px;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .bar-container {
-    height: 8px;
-    background: rgba(157, 78, 246, 0.2);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .bar {
-    height: 100%;
-    background: var(--color-bright-purple);
-    transition: width 0.3s ease;
-  }
-
-  @media (max-width: 768px) {
-    .controls {
-      top: auto;
-      bottom: 20px;
-    }
-
-    .dimension-controls {
-      flex-direction: column;
-    }
-
-    .details-panel {
-      width: 100%;
-      top: auto;
-      bottom: 0;
-      right: 0;
-      border-radius: 8px 8px 0 0;
-    }
+  :global(circle) {
+    transition: r 0.2s ease-out, opacity 0.2s ease-out;
   }
 </style>
