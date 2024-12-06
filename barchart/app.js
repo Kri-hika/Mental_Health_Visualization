@@ -1,4 +1,4 @@
-import { mountBarChart, BarChart } from './src/vis-code'
+import { mountBarChart, BarChart } from './src/barchart'
 import './style.css'
 
 document.querySelector('#app').innerHTML = `
