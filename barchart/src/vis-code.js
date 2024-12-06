@@ -24,12 +24,12 @@ const rollupData = d3.rollups(
 }));
 
 // Extract all unique severity categories to define color scale
-const severityCategories = Array.from(new Set(data.map(d => d.severity)));
+const severityCategories = ["None", "Low", "Medium", "High"];
 
 // Define color scale for severity categories
 const colorScale = d3.scaleOrdinal()
-    .domain(severityCategories)
-    .range(d3.schemeCategory10);
+    .domain(["None", "Low", "Medium", "High"])
+    .range(["green", "blue", "orange", "red"]);
 
 // Resize observer function for container
 const resizeObserver = new ResizeObserver((entries) => {
