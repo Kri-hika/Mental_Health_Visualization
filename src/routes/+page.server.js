@@ -1,7 +1,6 @@
 // src/routes/+page.server.js
 import { promises as fs } from 'fs';
 import path from 'path';
-import { processData } from '$lib/utils/dataProcessing';
 
 export async function load() {
   try {
@@ -14,7 +13,7 @@ export async function load() {
       fs.readFile(treatmentPath, 'utf-8')
     ]);
 
-    // Parse mental health dataset
+    // Parse mental health dataset for visualization
     const parsedMentalHealth = mentalHealthData
       .trim()
       .split('\n')
@@ -27,29 +26,26 @@ export async function load() {
         ] = line.split(',');
 
         return {
-          User_ID,
-          Age: +Age,
-          Gender,
-          Occupation,
-          Country,
-          Mental_Health_Condition,
-          Severity,
-          Consultation_History,
-          Stress_Level,
-          Sleep_Hours: +Sleep_Hours,
-          Work_Hours: +Work_Hours,
-          Physical_Activity_Hours: +Physical_Activity_Hours
+          id: User_ID,
+          age: +Age,
+          gender: Gender,
+          occupation: Occupation,
+          country: Country,
+          mentalHealth: Mental_Health_Condition,
+          severity: Severity,
+          consultation: Consultation_History,
+          stressLevel: Stress_Level,
+          sleepHours: +Sleep_Hours,
+          workHours: +Work_Hours,
+          physicalActivity: +Physical_Activity_Hours
         };
       });
-
-    // Process and structure the data
-    const processedData = processData(parsedMentalHealth);
 
     // Parse treatment dataset
     const parsedTreatment = weeklyTreatmentData
       .trim()
       .split('\n')
-      .slice(1)
+      .slice(1) // Remove header
       .map(line => {
         const parts = line.split(',');
         return {
@@ -63,28 +59,24 @@ export async function load() {
         };
       });
 
+    // Filter out any invalid entries
+    const cleanMentalHealthData = parsedMentalHealth.filter(d => 
+      d.occupation && 
+      d.mentalHealth && 
+      !isNaN(d.workHours) && 
+      !isNaN(d.sleepHours)
+    );
+
     return {
-      // Original data structure for backward compatibility
-      data: processedData.fullData,
-      
-      // Enhanced data structures
-      clusters: processedData.clusteredData,
-      occupationStats: processedData.aggregatedData,
-      treatmentData: parsedTreatment,
-      
-      // Metadata
-      dataStats: {
-        totalParticipants: processedData.fullData.length,
-        totalTribes: processedData.clusteredData.length,
-        dateProcessed: new Date().toISOString()
-      }
+      data: cleanMentalHealthData,  // This maintains compatibility with existing visualization
+      mentalHealthData: cleanMentalHealthData,  // Full mental health dataset
+      treatmentData: parsedTreatment  // Treatment dataset for future use
     };
   } catch (error) {
     console.error('Error loading data:', error);
     return {
       data: [],
-      clusters: [],
-      occupationStats: [],
+      mentalHealthData: [],
       treatmentData: [],
       error: {
         message: `Failed to load data: ${error.message}`,

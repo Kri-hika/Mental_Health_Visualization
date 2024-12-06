@@ -1,656 +1,601 @@
-<!-- src/lib/components/DynamicTribeViz.svelte -->
+<!-- DynamicTribeViz.svelte -->
 <script>
-  import { onMount, createEventDispatcher } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
+  import { onMount } from 'svelte';
   import * as d3 from 'd3';
   import _ from 'lodash';
-  import PersonIcon from './icons/PersonIcon.svelte';
-  import DimensionControls from './DimensionControls.svelte';
-  import InsightPanel from './InsightPanel.svelte';
+  import { fade, fly } from 'svelte/transition';
+  import { 
+    processInitialData,
+    generateClusterInsights,
+    generateWorkLifeInsights,
+    generateTreatmentInsights,
+    generateStressInsights,
+    STRESS_COLORS,
+    WORK_LIFE_COLORS,
+    TREATMENT_COLORS
+  } from '../utils/dataUtils';
 
+  // Props
   export let data;
   export let userData;
-  export let treatmentData;
 
-  const dispatch = createEventDispatcher();
-  let svg;
+  // DOM references
   let container;
-  let simulation;
+  let svg;
+  let tooltipDiv;
+
+  // State variables
   let width = 1000;
   let height = 700;
-  let currentDimension = 'clusters'; // clusters, worklife, treatment, stress
-  let hoveredNode = null;
-  let selectedNode = null;
-  let processedData = [];
+  let currentView = 'clusters';
+  let hoveredEntity = null;
+  let selectedEntity = null;
+  let processedData;
+  let insights;
+  let simulation;
+  let zoomBehavior;
 
-  // Position configurations for different views
-  const VIEW_CONFIGS = {
-    clusters: {
-      positions: {
-        'Balanced-Low': { x: 0.25, y: 0.25 },
-        'Balanced-Medium': { x: 0.5, y: 0.25 },
-        'Balanced-High': { x: 0.75, y: 0.25 },
-        'Intense-Low': { x: 0.25, y: 0.75 },
-        'Intense-Medium': { x: 0.5, y: 0.75 },
-        'Intense-High': { x: 0.75, y: 0.75 }
-      },
-      forces: {
-        charge: -50,
-        collision: 20,
-        centerStrength: 0.1
-      }
-    },
-    worklife: {
-      forces: {
-        charge: -30,
-        collision: 15,
-        xStrength: 0.2,
-        yStrength: 0.2
-      }
-    },
-    treatment: {
-      forces: {
-        charge: -40,
-        collision: 18,
-        xStrength: 0.3,
-        yStrength: 0.2
-      }
-    },
-    stress: {
-      forces: {
-        charge: -45,
-        collision: 20,
-        xStrength: 0.25,
-        yStrength: 0.25
-      }
-    }
-  };
+  // Reactive declarations
+  $: containerDimensions = container?.getBoundingClientRect() || { width: 1000, height: 700 };
+  $: width = containerDimensions.width;
+  $: height = containerDimensions.height;
 
-  // Color scheme
-  const COLORS = {
-    TREATMENT: {
-      IDENTIFIED: '#FF6B9C',
-      UNTREATED: '#4FACFF',
-      TREATED: '#43E8D8'
-    },
-    STRESS: {
-      LOW: '#43E8D8',
-      MEDIUM: '#9D4EDD',
-      HIGH: '#FF6B9C'
-    },
-    WORKLIFE: {
-      BALANCED: '#43E8D8',
-      MODERATE: '#9D4EDD',
-      INTENSE: '#FF6B9C'
-    }
-  };
-
-  function processData() {
-    const enhanced = data.map(d => ({
-      ...d,
-      id: d.User_ID,
-      worklifeScore: calculateWorklifeScore(d),
-      treatmentStatus: determineTreatmentStatus(d),
-      stressImpact: calculateStressImpact(d),
-      cluster: determineCluster(d),
-      position: { x: width/2, y: height/2 },
-      velocity: { x: 0, y: 0 },
-      particles: generateParticles()
-    }));
-
-    const enhancedUser = {
-      ...userData,
-      id: 'user',
-      isUser: true,
-      worklifeScore: calculateWorklifeScore(userData),
-      treatmentStatus: determineTreatmentStatus(userData),
-      stressImpact: calculateStressImpact(userData),
-      cluster: determineCluster(userData),
-      position: { x: width/2, y: height/2 },
-      velocity: { x: 0, y: 0 },
-      particles: generateParticles(true)
+  // Initialize data and visualization
+  onMount(async () => {
+    processedData = processInitialData(data);
+    insights = {
+      clusters: generateClusterInsights(processedData),
+      worklife: generateWorkLifeInsights(processedData),
+      treatment: generateTreatmentInsights(processedData),
+      stress: generateStressInsights(processedData)
     };
 
-    processedData = [...enhanced, enhancedUser];
-    return processedData;
-  }
+    initializeVisualization();
+    setupResponsiveness();
 
-  function calculateWorklifeScore(d) {
-    const sleepScore = 1 - Math.min(Math.abs(d.sleepHours - 8) / 4, 1);
-    const workScore = 1 - Math.min(Math.abs(d.workHours - 40) / 20, 1);
-    const activityScore = Math.min(d.physicalActivity / 10, 1);
-    
-    return {
-      total: (sleepScore * 0.4 + workScore * 0.4 + activityScore * 0.2),
-      sleep: sleepScore,
-      work: workScore,
-      activity: activityScore
+    return () => {
+      if (simulation) simulation.stop();
     };
-  }
+  });
 
-  function determineTreatmentStatus(d) {
-    return {
-      hasCondition: d.Mental_Health_Condition === 'Yes',
-      seeking: d.Consultation_History === 'Yes',
-      severity: d.Severity,
-      accessScore: calculateAccessScore(d)
-    };
-  }
-
-  function determineCluster(d) {
-    const wellbeing = calculateWorklifeScore(d).total;
-    const lifestyle = wellbeing > 0.6 ? 'Balanced' : 'Intense';
-    return `${lifestyle}-${d.stressLevel}`;
-  }
-
-  function calculateStressImpact(d) {
-    const baseImpact = d.stressLevel === 'High' ? 1 :
-                      d.stressLevel === 'Medium' ? 0.6 : 0.3;
-    const sleepImpact = d.sleepHours < 6 ? 0.3 : 0;
-    const workImpact = d.workHours > 50 ? 0.3 : 0;
-    
-    return {
-      total: Math.min(1, baseImpact + sleepImpact + workImpact),
-      physical: d.physicalActivity < 3 ? 'Low' : 
-               d.physicalActivity > 7 ? 'High' : 'Moderate',
-      sleep: d.sleepHours < 6 ? 'Poor' : 
-             d.sleepHours > 8 ? 'Good' : 'Adequate'
-    };
-  }
-
-  function calculateAccessScore(d) {
-    let score = 0;
-    if (d.Consultation_History === 'Yes') score += 0.5;
-    if (d.Severity === 'High') score += 0.3;
-    if (d.workHours > 50) score -= 0.2;
-    if (d.sleepHours < 6) score -= 0.1;
-    return Math.max(0, Math.min(1, score));
-  }
-
-  function generateParticles(isUser = false) {
-    const count = isUser ? 12 : 8;
-    return Array.from({ length: count }, () => ({
-      offset: {
-        x: (Math.random() - 0.5) * 20,
-        y: (Math.random() - 0.5) * 20
-      },
-      phase: Math.random() * Math.PI * 2,
-      radius: isUser ? 2.5 : 2
-    }));
-  }
-
-  function initializeVisualization() {
-    if (!svg || !processedData.length) return;
-
-    // Clear previous visualization
-    d3.select(svg).selectAll('*').remove();
-
-    // Setup gradient definitions
-    setupGradients();
-
-    // Initialize appropriate view
-    switch(currentDimension) {
-      case 'clusters':
-        initializeClusterView();
-        break;
-      case 'worklife':
-        initializeWorklifeView();
-        break;
-      case 'treatment':
-        initializeTreatmentView();
-        break;
-      case 'stress':
-        initializeStressView();
-        break;
-    }
-  }
-
-   function initializeClusterView() {
-    const config = VIEW_CONFIGS.clusters;
-    
-    // Create cluster labels
-    const labelGroup = d3.select(svg).append('g')
-      .attr('class', 'cluster-labels');
-
-    Object.entries(config.positions).forEach(([cluster, pos]) => {
-      labelGroup.append('text')
-        .attr('class', 'cluster-label')
-        .attr('x', pos.x * width)
-        .attr('y', pos.y * height - 40)
-        .text(cluster.replace('-', ' '))
-        .style('opacity', 0)
-        .transition()
-        .duration(1000)
-        .style('opacity', 1);
-    });
-
-    // Initialize simulation
-    simulation = d3.forceSimulation(processedData)
-      .force('center', d3.forceCenter(width/2, height/2))
-      .force('charge', d3.forceManyBody().strength(config.forces.charge))
-      .force('collision', d3.forceCollide().radius(config.forces.collision))
-      .force('cluster', createClusterForce())
-      .on('tick', () => {
-        updateParticles();
-        updateNodes();
-      });
-  }
-
-  function initializeWorklifeView() {
-    const config = VIEW_CONFIGS.worklife;
-
-    // Create axes
-    const axisGroup = d3.select(svg).append('g')
-      .attr('class', 'axes');
-
-    // X-axis (Work Balance)
-    axisGroup.append('line')
-      .attr('class', 'axis-line')
-      .attr('x1', 0)
-      .attr('y1', height - 30)
-      .attr('x2', width)
-      .attr('y2', height - 30);
-
-    axisGroup.append('text')
-      .attr('class', 'axis-label')
-      .attr('x', width/2)
-      .attr('y', height - 10)
-      .attr('text-anchor', 'middle')
-      .text('Work Balance →');
-
-    // Y-axis (Sleep Quality)
-    axisGroup.append('line')
-      .attr('class', 'axis-line')
-      .attr('x1', 30)
-      .attr('y1', 0)
-      .attr('x2', 30)
-      .attr('y2', height);
-
-    axisGroup.append('text')
-      .attr('class', 'axis-label')
-      .attr('transform', `translate(10, ${height/2}) rotate(-90)`)
-      .attr('text-anchor', 'middle')
-      .text('Sleep Quality →');
-
-    // Initialize simulation
-    simulation = d3.forceSimulation(processedData)
-      .force('x', d3.forceX(d => width * d.worklifeScore.work).strength(config.forces.xStrength))
-      .force('y', d3.forceY(d => height * (1 - d.worklifeScore.sleep)).strength(config.forces.yStrength))
-      .force('charge', d3.forceManyBody().strength(config.forces.charge))
-      .force('collision', d3.forceCollide().radius(config.forces.collision))
-      .on('tick', () => {
-        updateParticles();
-        updateNodes();
-      });
-  }
-
-  function initializeTreatmentView() {
-    const config = VIEW_CONFIGS.treatment;
-
-    // Create treatment journey path
-    const pathGroup = d3.select(svg).append('g')
-      .attr('class', 'treatment-path');
-
-    // Add journey stages
-    const stages = ['No Condition', 'Identified', 'Seeking Treatment'];
-    stages.forEach((stage, i) => {
-      const x = width * (i * 0.3 + 0.2);
-      
-      pathGroup.append('circle')
-        .attr('cx', x)
-        .attr('cy', height/2)
-        .attr('r', 5)
-        .attr('fill', 'var(--color-bright-purple)')
-        .attr('opacity', 0.3);
-
-      pathGroup.append('text')
-        .attr('class', 'axis-label')
-        .attr('x', x)
-        .attr('y', height/2 + 25)
-        .attr('text-anchor', 'middle')
-        .text(stage);
-    });
-
-    // Add connecting lines
-    pathGroup.append('path')
-      .attr('class', 'axis-line')
-      .attr('d', `M ${width*0.2} ${height/2} L ${width*0.8} ${height/2}`)
-      .attr('fill', 'none');
-
-    // Initialize simulation
-    simulation = d3.forceSimulation(processedData)
-      .force('x', d3.forceX(d => {
-        if (!d.treatmentStatus.hasCondition) return width * 0.2;
-        return d.treatmentStatus.seeking ? width * 0.8 : width * 0.5;
-      }).strength(config.forces.xStrength))
-      .force('y', d3.forceY(d => height * (1 - d.treatmentStatus.accessScore))
-        .strength(config.forces.yStrength))
-      .force('charge', d3.forceManyBody().strength(config.forces.charge))
-      .force('collision', d3.forceCollide().radius(config.forces.collision))
-      .on('tick', () => {
-        updateParticles();
-        updateNodes();
-      });
-  }
-
-  function initializeStressView() {
-    const config = VIEW_CONFIGS.stress;
-
-    // Create stress level bands
-    const bandGroup = d3.select(svg).append('g')
-      .attr('class', 'stress-bands');
-
-    ['High', 'Medium', 'Low'].forEach((level, i) => {
-      const y = height * (i * 0.3 + 0.2);
-      
-      bandGroup.append('rect')
-        .attr('x', 0)
-        .attr('y', y - 30)
-        .attr('width', width)
-        .attr('height', 60)
-        .attr('fill', COLORS.STRESS[level.toUpperCase()])
-        .attr('opacity', 0.1);
-
-      bandGroup.append('text')
-        .attr('class', 'cluster-label')
-        .attr('x', 20)
-        .attr('y', y)
-        .text(`${level} Stress`);
-    });
-
-    // Add impact scale
-    bandGroup.append('text')
-      .attr('class', 'axis-label')
-      .attr('x', width/2)
-      .attr('y', height - 10)
-      .attr('text-anchor', 'middle')
-      .text('Stress Impact →');
-
-    // Initialize simulation
-    simulation = d3.forceSimulation(processedData)
-      .force('x', d3.forceX(d => width * d.stressImpact.total).strength(config.forces.xStrength))
-      .force('y', d3.forceY(d => {
-        const stressY = d.stressLevel === 'High' ? 0.2 :
-                       d.stressLevel === 'Medium' ? 0.5 : 0.8;
-        return height * stressY;
-      }).strength(config.forces.yStrength))
-      .force('charge', d3.forceManyBody().strength(config.forces.charge))
-      .force('collision', d3.forceCollide().radius(config.forces.collision))
-      .on('tick', () => {
-        updateParticles();
-        updateNodes();
-      });
-  }
-
-  function updateNodes() {
-    const nodes = d3.select(svg)
-      .selectAll('.node')
-      .data(processedData);
-
-    const nodesEnter = nodes.enter()
-      .append('g')
-      .attr('class', 'node')
-      .on('mouseover', (event, d) => {
-        hoveredNode = d;
-      })
-      .on('mouseout', () => {
-        hoveredNode = null;
-      })
-      .on('click', (event, d) => {
-        selectedNode = selectedNode === d ? null : d;
-      })
-      .call(d3.drag()
-        .on('start', dragstarted)
-        .on('drag', dragged)
-        .on('end', dragended));
-
-    nodes.merge(nodesEnter)
-      .attr('transform', d => `translate(${d.x},${d.y})`)
-      .each(function(d) {
-        if (!this.__icon) {
-          this.__icon = new PersonIcon({
-            target: this,
-            props: {
-              size: d.isUser ? 12 : 8,
-              color: getNodeColor(d),
-              isUser: d.isUser,
-              wellbeing: d.worklifeScore.total
-            }
-          });
-        } else {
-          this.__icon.$set({
-            color: getNodeColor(d)
-          });
-        }
-      });
-
-    nodes.exit().remove();
-  }
-
-  function dragstarted(event) {
-    if (!event.active) simulation.alphaTarget(0.3).restart();
-    event.subject.fx = event.subject.x;
-    event.subject.fy = event.subject.y;
-  }
-
-  function dragged(event) {
-    event.subject.fx = event.x;
-    event.subject.fy = event.y;
-  }
-
-  function dragended(event) {
-    if (!event.active) simulation.alphaTarget(0);
-    event.subject.fx = null;
-    event.subject.fy = null;
-  }
-
-  function createClusterForce() {
-    return alpha => {
-      processedData.forEach(d => {
-        const target = getNodePosition(d);
-        d.vx += (target.x - d.x) * alpha * 0.1;
-        d.vy += (target.y - d.y) * alpha * 0.1;
-      });
-    };
-  }
-
-  function setupGradients() {
-    const defs = d3.select(svg).append('defs');
-
-    // Add glow filter
-    const filter = defs.append('filter')
-      .attr('id', 'glow');
-
-    filter.append('feGaussianBlur')
-      .attr('stdDeviation', '2')
-      .attr('result', 'coloredBlur');
-
-    const feMerge = filter.append('feMerge');
-    feMerge.append('feMergeNode')
-      .attr('in', 'coloredBlur');
-    feMerge.append('feMergeNode')
-      .attr('in', 'SourceGraphic');
-
-    // Add gradients for different views
-    Object.entries(COLORS).forEach(([key, value]) => {
-      const gradient = defs.append('linearGradient')
-        .attr('id', `gradient-${key.toLowerCase()}`)
-        .attr('x1', '0%')
-        .attr('y1', '0%')
-        .attr('x2', '100%')
-        .attr('y2', '100%');
-
-      Object.values(value).forEach((color, i, arr) => {
-        gradient.append('stop')
-          .attr('offset', `${(i / (arr.length - 1)) * 100}%`)
-          .attr('stop-color', color);
-      });
-    });
-  }
-
-  function updateVisualization() {
-    // Stop current simulation if running
-    if (simulation) simulation.stop();
-
-    // Remove existing elements with transition
-    d3.select(svg).selectAll('*')
-      .transition()
-      .duration(500)
-      .style('opacity', 0)
-      .remove()
-      .on('end', () => {
-        // Initialize new visualization
-        initializeVisualization();
-      });
-  }
-
-  function getNodePosition(d) {
-    switch(currentDimension) {
-      case 'clusters':
-        const clusterPos = VIEW_CONFIGS.clusters.positions[d.cluster];
-        return {
-          x: clusterPos.x * width,
-          y: clusterPos.y * height
-        };
-      
-      case 'worklife':
-        return {
-          x: width * (d.worklifeScore.work),
-          y: height * (1 - d.worklifeScore.sleep)
-        };
-      
-      case 'treatment':
-        let xPos;
-        if (!d.treatmentStatus.hasCondition) {
-          xPos = 0.2;
-        } else {
-          xPos = d.treatmentStatus.seeking ? 0.8 : 0.5;
-        }
-        return {
-          x: width * xPos,
-          y: height * (1 - d.treatmentStatus.accessScore)
-        };
-      
-      case 'stress':
-        const stressY = d.stressLevel === 'High' ? 0.2 :
-                       d.stressLevel === 'Medium' ? 0.5 : 0.8;
-        return {
-          x: width * d.stressImpact.total,
-          y: height * stressY
-        };
-    }
-  }
-
-  function updateParticles() {
-    const time = Date.now() * 0.001;
-    
-    processedData.forEach(d => {
-      d.particles.forEach(p => {
-        const wobble = Math.sin(time * 0.5) * 0.3;
-        p.offset.x = Math.cos(p.phase + time) * 20 * (1 + wobble);
-        p.offset.y = Math.sin(p.phase + time) * 20 * (1 + wobble);
-      });
-    });
-
-    const particleGroups = d3.select(svg)
-      .selectAll('.particle-group')
-      .data(processedData);
-
-    // Enter + Update particles
-    particleGroups.enter()
-      .append('g')
-      .attr('class', 'particle-group')
-      .merge(particleGroups)
-      .attr('transform', d => `translate(${d.x},${d.y})`)
-      .each(function(d) {
-        const particles = d3.select(this)
-          .selectAll('.particle')
-          .data(d.particles);
-
-        particles.enter()
-          .append('circle')
-          .attr('class', 'particle')
-          .merge(particles)
-          .attr('r', p => p.radius)
-          .attr('cx', p => p.offset.x)
-          .attr('cy', p => p.offset.y)
-          .attr('fill', getNodeColor(d))
-          .attr('opacity', 0.6)
-          .attr('filter', d.isUser ? 'url(#glow)' : null);
-
-        particles.exit().remove();
-      });
-
-    particleGroups.exit().remove();
-  }
-
-  function getNodeColor(d) {
-    switch(currentDimension) {
-      case 'clusters':
-        return d.cluster ? COLORS.WORKLIFE[d.cluster.split('-')[0].toUpperCase()] 
-                       : COLORS.WORKLIFE.MODERATE;
-      
-      case 'worklife':
-        const score = d.worklifeScore.total;
-        return score > 0.7 ? COLORS.WORKLIFE.BALANCED :
-               score > 0.4 ? COLORS.WORKLIFE.MODERATE :
-               COLORS.WORKLIFE.INTENSE;
-      
-      case 'treatment':
-        if (!d.treatmentStatus.hasCondition) return COLORS.TREATMENT.UNTREATED;
-        return d.treatmentStatus.seeking ? COLORS.TREATMENT.TREATED 
-                                       : COLORS.TREATMENT.IDENTIFIED;
-      
-      case 'stress':
-        return COLORS.STRESS[d.stressLevel.toUpperCase()];
-    }
-  }
-
-  onMount(() => {
-    if (container) {
-      const rect = container.getBoundingClientRect();
-      width = rect.width;
-      height = rect.height;
-      processData();
-      initializeVisualization();
-
-      const resizeObserver = new ResizeObserver(() => {
+  function setupResponsiveness() {
+    const resizeObserver = new ResizeObserver(() => {
+      if (container) {
         const rect = container.getBoundingClientRect();
         width = rect.width;
         height = rect.height;
         updateVisualization();
+      }
+    });
+
+    if (container) {
+      resizeObserver.observe(container);
+    }
+
+    return () => resizeObserver.disconnect();
+  }
+
+  function initializeVisualization() {
+    // Initialize D3 zoom behavior
+    zoomBehavior = d3.zoom()
+      .scaleExtent([0.5, 4])
+      .on('zoom', handleZoom);
+
+    d3.select(svg)
+      .call(zoomBehavior)
+      .call(zoomBehavior.transform, d3.zoomIdentity);
+
+    updateVisualization();
+  }
+
+  function handleZoom(event) {
+    d3.select(svg).select('.viz-container')
+      .attr('transform', event.transform);
+  }
+
+  function updateVisualization() {
+    switch(currentView) {
+      case 'clusters':
+        renderClusterView();
+        break;
+      case 'worklife':
+        renderWorkLifeView();
+        break;
+      case 'treatment':
+        renderTreatmentView();
+        break;
+      case 'stress':
+        renderStressView();
+        break;
+    }
+  }
+
+  function renderClusterView() {
+    const svg = d3.select(svg);
+    svg.selectAll('*').remove();
+
+    const vizContainer = svg.append('g')
+      .attr('class', 'viz-container');
+
+    const clusterData = Object.entries(insights.clusters).map(([name, data]) => ({
+      id: name,
+      ...data,
+      radius: Math.sqrt(data.count) * 5
+    }));
+
+    // Create force simulation
+    simulation = d3.forceSimulation(clusterData)
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('charge', d3.forceManyBody().strength(-200))
+      .force('collide', d3.forceCollide().radius(d => d.radius + 2))
+      .on('tick', () => {
+        clusters.attr('transform', d => `translate(${d.x},${d.y})`);
       });
 
-      resizeObserver.observe(container);
+    // Create cluster groups
+    const clusters = vizContainer.selectAll('.cluster')
+      .data(clusterData)
+      .enter()
+      .append('g')
+      .attr('class', 'cluster')
+      .on('mouseover', (event, d) => {
+        hoveredEntity = d;
+        showTooltip(event, d);
+      })
+      .on('mouseout', () => {
+        hoveredEntity = null;
+        hideTooltip();
+      })
+      .on('click', (event, d) => {
+        selectedEntity = selectedEntity === d ? null : d;
+        event.stopPropagation();
+      });
 
-      return () => {
-        resizeObserver.disconnect();
-        if (simulation) simulation.stop();
-      };
+    // Add cluster circles
+    clusters.append('circle')
+      .attr('r', d => d.radius)
+      .style('fill', d => {
+        const [balance, stress] = d.id.split('-');
+        return d3.interpolateRgb(WORK_LIFE_COLORS[balance], STRESS_COLORS[stress])(0.5);
+      })
+      .style('opacity', 0.7)
+      .style('stroke', '#fff')
+      .style('stroke-opacity', 0.3);
+
+    // Add cluster labels
+    clusters.append('text')
+      .text(d => d.id)
+      .attr('text-anchor', 'middle')
+      .attr('dy', '0.3em')
+      .style('fill', '#fff')
+      .style('font-size', '12px')
+      .style('pointer-events', 'none');
+
+    // Add particles for visual interest
+    clusters.each(function(d) {
+      const particleCount = Math.floor(d.radius / 3);
+      const particles = d3.range(particleCount).map(() => ({
+        angle: Math.random() * 2 * Math.PI,
+        radius: Math.random() * d.radius * 0.8,
+        speed: Math.random() * 0.02 + 0.01
+      }));
+
+      const particleGroup = d3.select(this)
+        .append('g')
+        .attr('class', 'particles');
+
+      particles.forEach(p => {
+        particleGroup.append('circle')
+          .attr('r', 1.5)
+          .style('fill', '#fff')
+          .style('opacity', 0.6);
+      });
+
+      // Animate particles
+      function updateParticles() {
+        particleGroup.selectAll('circle')
+          .data(particles)
+          .attr('cx', p => Math.cos(p.angle) * p.radius)
+          .attr('cy', p => Math.sin(p.angle) * p.radius);
+
+        particles.forEach(p => {
+          p.angle += p.speed;
+        });
+
+        requestAnimationFrame(updateParticles);
+      }
+
+      updateParticles();
+    });
+  }
+
+  function renderWorkLifeView() {
+    const svg = d3.select(svg);
+    svg.selectAll('*').remove();
+
+    const vizContainer = svg.append('g')
+      .attr('class', 'viz-container');
+
+    const workLifeData = Object.entries(insights.worklife).map(([balance, data]) => ({
+      balance,
+      ...data
+    }));
+
+    // Create layout
+    const padding = 40;
+    const innerWidth = width - (padding * 2);
+    const innerHeight = height - (padding * 2);
+
+    // Scales
+    const xScale = d3.scaleBand()
+      .domain(workLifeData.map(d => d.balance))
+      .range([0, innerWidth])
+      .padding(0.1);
+
+    const yScale = d3.scaleLinear()
+      .domain([0, d3.max(workLifeData, d => d.count)])
+      .range([innerHeight, 0]);
+
+    // Create axes
+    const xAxis = d3.axisBottom(xScale);
+    const yAxis = d3.axisLeft(yScale);
+
+    vizContainer.append('g')
+      .attr('transform', `translate(${padding},${height - padding})`)
+      .call(xAxis);
+
+    vizContainer.append('g')
+      .attr('transform', `translate(${padding},${padding})`)
+      .call(yAxis);
+
+    // Create stacked bars
+    const stackedData = d3.stack()
+      .keys(['Low', 'Medium', 'High'])
+      .value((d, key) => d.avgStressDistribution[key] || 0)
+      (workLifeData);
+
+    const categoryColors = [
+      STRESS_COLORS.Low,
+      STRESS_COLORS.Medium,
+      STRESS_COLORS.High
+    ];
+
+    const layers = vizContainer.selectAll('.layer')
+      .data(stackedData)
+      .enter()
+      .append('g')
+      .attr('class', 'layer')
+      .style('fill', (d, i) => categoryColors[i]);
+
+    layers.selectAll('rect')
+      .data(d => d)
+      .enter()
+      .append('rect')
+      .attr('x', (d, i) => xScale(workLifeData[i].balance) + padding)
+      .attr('y', d => yScale(d[1]) + padding)
+      .attr('height', d => yScale(d[0]) - yScale(d[1]))
+      .attr('width', xScale.bandwidth())
+      .on('mouseover', (event, d) => {
+        hoveredEntity = d;
+        showTooltip(event, d);
+      })
+      .on('mouseout', () => {
+        hoveredEntity = null;
+        hideTooltip();
+      });
+  }
+
+  function renderTreatmentView() {
+    const svg = d3.select(svg);
+    svg.selectAll('*').remove();
+
+    const vizContainer = svg.append('g')
+      .attr('class', 'viz-container');
+
+    const treatmentData = Object.entries(insights.treatment.byOccupation)
+      .map(([occupation, data]) => ({
+        occupation,
+        ...data,
+        treatmentRate: data.treated / data.total
+      }));
+
+    // Create hexbin layout
+    const hexbin = d3.hexbin()
+      .radius(30)
+      .extent([[0, 0], [width, height]]);
+
+    const points = treatmentData.flatMap(d => 
+      Array(d.total).fill().map(() => [
+        Math.random() * width,
+        Math.random() * height,
+        d
+      ])
+    );
+
+    const bins = hexbin(points);
+
+    // Color scale
+    const colorScale = d3.scaleSequential(d3.interpolateRgb(TREATMENT_COLORS.Untreated, TREATMENT_COLORS.Treated))
+      .domain([0, 1]);
+
+    // Draw hexagons
+    vizContainer.selectAll('path')
+      .data(bins)
+      .enter()
+      .append('path')
+      .attr('d', hexbin.hexagon())
+      .attr('transform', d => `translate(${d.x},${d.y})`)
+      .attr('fill', d => {
+        const avgTreatmentRate = d3.mean(d, p => p[2].treatmentRate);
+        return colorScale(avgTreatmentRate);
+      })
+      .attr('stroke', '#fff')
+      .attr('stroke-opacity', 0.3)
+      .on('mouseover', (event, d) => {
+        hoveredEntity = d;
+        showTooltip(event, d);
+      })
+      .on('mouseout', () => {
+        hoveredEntity = null;
+        hideTooltip();
+      });
+  }
+
+  function renderStressView() {
+    const svg = d3.select(svg);
+    svg.selectAll('*').remove();
+
+    const vizContainer = svg.append('g')
+      .attr('class', 'viz-container');
+
+    const stressData = Object.entries(insights.stress).map(([level, data]) => ({
+      level,
+      ...data
+    }));
+
+    // Create radial layout
+    const radius = Math.min(width, height) / 2 - 100;
+    const angleScale = d3.scalePoint()
+      .domain(Object.keys(insights.stress))
+      .range([0, Math.PI * 2]);
+
+    vizContainer.attr('transform', `translate(${width/2},${height/2})`);
+
+    // Create stress level segments
+    const arc = d3.arc()
+      .innerRadius(0)
+      .outerRadius(radius)
+      .startAngle(d => angleScale(d.level) - Math.PI/3)
+      .endAngle(d => angleScale(d.level) + Math.PI/3);
+
+    const segments = vizContainer.selectAll('.segment')
+      .data(stressData)
+      .enter()
+      .append('path')
+      .attr('class', 'segment')
+      .attr('d', arc)
+      .style('fill', d => STRESS_COLORS[d.level])
+      .style('opacity', 0.6)
+      .on('mouseover', (event, d) => {
+        hoveredEntity = d;
+        showTooltip(event, d);
+      })
+      .on('mouseout', () => {
+        hoveredEntity = null;
+        hideTooltip();
+      });
+
+    // Add labels
+    vizContainer.selectAll('.label')
+      .data(stressData)
+      .enter()
+      .append('text')
+      .attr('class', 'label')
+      .attr('transform', d => {
+        const angle = angleScale(d.level) - Math.PI/2;
+        const x = Math.cos(angle) * (radius + 20);
+        const y = Math.sin(angle) * (radius + 20);
+        return `translate(${x},${y})`;
+      })
+      .attr('text-anchor', 'middle')
+      .style('fill', '#fff')
+      .style('font-size', '14px')
+      .text(d => d.level);
+  }
+
+  function showTooltip(event, data) {
+    const tooltip = d3.select(tooltipDiv);
+    const [x, y] = d3.pointer(event);
+
+    tooltip
+      .style('left', `${x + 10}px`)
+      .style('top', `${y + 10}px`)
+      .style('opacity', 1)
+      .html(generateTooltipContent(data));
+  }
+
+  function hideTooltip() {
+    d3.select(tooltipDiv)
+      .style('opacity', 0);
+  }
+
+  function generateTooltipContent(data) {
+    switch(currentView) {
+      case 'clusters':
+        return `
+          <div class="tooltip-content">
+            <h3>${data.id}</h3>
+            <p>Population: ${data.count}</p>
+            <p>Avg Age: ${data.avgAge.toFixed(1)}</p>
+            <p>Mental Health Rate: ${(data.mentalHealthRate * 100).toFixed(1)}%</p>
+            <p>Consultation Rate: ${(data.consultationRate * 100).toFixed(1)}%</p>
+          </div>
+        `;
+      case 'worklife':
+        return `
+          <div class="tooltip-content">
+            <h3>${data.balance}</h3>
+            <p>Work Hours: ${data.avgWorkHours.toFixed(1)}</p>
+            <p>Sleep Hours: ${data.avgSleepHours.toFixed(1)}</p>
+            <p>Physical Activity: ${data.avgPhysicalActivity.toFixed(1)} hrs/week</p>
+          </div>
+        `;
+      case 'treatment':
+        return `
+          <div class="tooltip-content">
+            <h3>${data[0]?.occupation || 'Treatment Group'}</h3>
+            <p>Population: ${data.length}</p>
+            <p>Treatment Rate: ${(data[0]?.[2].treatmentRate * 100).toFixed(1)}%</p>
+            <p>High Stress Cases: ${data[0]?.[2].highStress || 0}</p>
+          </div>
+        `;
+      case 'stress':
+        return `
+          <div class="tooltip-content">
+            <h3>${data.level} Stress</h3>
+            <p>Population: ${data.count}</p>
+            <p>Avg Sleep: ${data.avgSleep.toFixed(1)} hrs</p>
+            <p>Avg Work: ${data.avgWork.toFixed(1)} hrs/week</p>
+            <p>Mental Health Rate: ${(data.mentalHealthRate * 100).toFixed(1)}%</p>
+          </div>
+        `;
+      default:
+        return '';
     }
-  });
+  }
+
+  function handleDimensionChange(event) {
+    currentView = event.detail;
+    selectedEntity = null;
+    updateVisualization();
+  }
+
+  // Handle window resize
+  let resizeTimeout;
+  function handleResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        width = rect.width;
+        height = rect.height;
+        updateVisualization();
+      }
+    }, 250);
+  }
 </script>
 
+<svelte:window on:resize={handleResize} />
+
 <div class="dynamic-tribe-viz" bind:this={container}>
-  <!-- Main Visualization -->
-  <svg bind:this={svg} {width} {height} />
+  <svg bind:this={svg} {width} {height}>
+    <defs>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+        <feMerge>
+          <feMergeNode in="coloredBlur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+  </svg>
 
-  <!-- Dimension Controls -->
-  <DimensionControls
-    dimension={currentDimension}
-    on:change={e => {
-      currentDimension = e.detail;
-      updateVisualization();
-    }}
-  />
+  <div class="tooltip" bind:this={tooltipDiv}></div>
 
-  <!-- Insight Panel -->
-  <InsightPanel
-    {processedData}
-    {selectedNode}
-    {hoveredNode}
-    dimension={currentDimension}
-  />
+  <div class="controls">
+    <div class="dimension-controls">
+      <button 
+        class="dimension-button" 
+        class:active={currentView === 'clusters'}
+        on:click={() => handleDimensionChange({ detail: 'clusters' })}
+      >
+        <span class="icon">🌐</span>
+        <span class="label">Mental Health Clusters</span>
+      </button>
+      <button 
+        class="dimension-button"
+        class:active={currentView === 'worklife'}
+        on:click={() => handleDimensionChange({ detail: 'worklife' })}
+      >
+        <span class="icon">⚖️</span>
+        <span class="label">Work-Life Balance</span>
+      </button>
+      <button 
+        class="dimension-button"
+        class:active={currentView === 'treatment'}
+        on:click={() => handleDimensionChange({ detail: 'treatment' })}
+      >
+        <span class="icon">🏥</span>
+        <span class="label">Treatment Access</span>
+      </button>
+      <button 
+        class="dimension-button"
+        class:active={currentView === 'stress'}
+        on:click={() => handleDimensionChange({ detail: 'stress' })}
+      >
+        <span class="icon">📊</span>
+        <span class="label">Stress Patterns</span>
+      </button>
+    </div>
+  </div>
+
+  {#if selectedEntity}
+    <div class="details-panel" transition:fly="{{ x: 300, duration: 300 }}">
+      <h2>{currentView === 'clusters' ? selectedEntity.id : selectedEntity.level || 'Details'}</h2>
+      
+      {#if currentView === 'clusters'}
+        <div class="details-content">
+          <div class="stat-group">
+            <h3>Population Statistics</h3>
+            <p>Total Members: {selectedEntity.count}</p>
+            <p>Average Age: {selectedEntity.avgAge.toFixed(1)}</p>
+            <p>Mental Health Rate: {(selectedEntity.mentalHealthRate * 100).toFixed(1)}%</p>
+          </div>
+          
+          <div class="stat-group">
+            <h3>Lifestyle Metrics</h3>
+            <p>Avg Sleep: {selectedEntity.avgSleep.toFixed(1)} hrs</p>
+            <p>Avg Work: {selectedEntity.avgWork.toFixed(1)} hrs/week</p>
+          </div>
+
+          <div class="stat-group">
+            <h3>Risk Analysis</h3>
+            <div class="risk-bars">
+              {#each Object.entries(selectedEntity.riskScore) as [risk, score]}
+                <div class="risk-bar">
+                  <span class="risk-label">{risk}</span>
+                  <div class="bar-container">
+                    <div class="bar" style="width: {score * 100}%"></div>
+                  </div>
+                  <span class="risk-value">{(score * 100).toFixed(0)}%</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {#if currentView === 'worklife'}
+        <div class="details-content">
+          <h3>Work-Life Distribution</h3>
+          <div class="distribution-bars">
+            {#each Object.entries(selectedEntity.workDistribution) as [category, count]}
+              <div class="distribution-bar">
+                <span class="category-label">{category}</span>
+                <div class="bar-container">
+                  <div 
+                    class="bar" 
+                    style="width: {(count / selectedEntity.count * 100)}%"
+                  ></div>
+                </div>
+                <span class="count-value">{count}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -662,54 +607,126 @@
     overflow: hidden;
   }
 
-  :global(.particle) {
-    transition: all 0.3s ease;
+  .controls {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
   }
 
-  :global(.particle-group) {
-    pointer-events: none;
+  .dimension-controls {
+    display: flex;
+    gap: 1rem;
   }
 
-  :global(.node) {
+  .dimension-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(20, 0, 40, 0.85);
+    border: 1px solid rgba(157, 78, 246, 0.2);
+    border-radius: 8px;
+    color: var(--color-text);
     cursor: pointer;
-    transition: transform 0.2s ease;
+    transition: all 0.2s ease;
   }
 
-  :global(.node:hover) {
-    transform: scale(1.1);
+  .dimension-button:hover {
+    border-color: var(--color-bright-purple);
+    color: var(--color-bright-purple);
   }
 
-  :global(.axis-line) {
-    stroke: var(--color-off-purple);
-    stroke-opacity: 0.2;
-    stroke-width: 1;
-    stroke-dasharray: 4 4;
+  .dimension-button.active {
+    background: var(--color-bright-purple);
+    color: var(--color-dark-purple);
+    border-color: var(--color-bright-purple);
   }
 
-  :global(.axis-label) {
-    fill: var(--color-bright-purple);
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  :global(.cluster-label) {
-    fill: var(--color-bright-purple);
-    font-size: 14px;
-    font-weight: 500;
-    text-anchor: middle;
+  .tooltip {
+    position: absolute;
+    padding: 1rem;
+    background: rgba(20, 0, 40, 0.95);
+    border: 1px solid rgba(157, 78, 246, 0.3);
+    border-radius: 8px;
     pointer-events: none;
-    opacity: 0.8;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    max-width: 300px;
+    backdrop-filter: blur(8px);
+  }
+
+  .details-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 300px;
+    background: rgba(20, 0, 40, 0.95);
+    border: 1px solid rgba(157, 78, 246, 0.3);
+    border-radius: 8px;
+    padding: 1.5rem;
+    backdrop-filter: blur(8px);
+  }
+
+  .details-panel h2 {
+    color: var(--color-bright-purple);
+    margin: 0 0 1rem 0;
+    font-size: 1.25rem;
+  }
+
+  .stat-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .stat-group h3 {
+    color: var(--color-text);
+    font-size: 1rem;
+    margin: 0 0 0.5rem 0;
+  }
+
+  .risk-bars, .distribution-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .risk-bar, .distribution-bar {
+    display: grid;
+    grid-template-columns: 100px 1fr 50px;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .bar-container {
+    height: 8px;
+    background: rgba(157, 78, 246, 0.2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .bar {
+    height: 100%;
+    background: var(--color-bright-purple);
+    transition: width 0.3s ease;
   }
 
   @media (max-width: 768px) {
-    :global(.axis-label) {
-      font-size: 10px;
+    .controls {
+      top: auto;
+      bottom: 20px;
     }
 
-    :global(.cluster-label) {
-      font-size: 12px;
+    .dimension-controls {
+      flex-direction: column;
+    }
+
+    .details-panel {
+      width: 100%;
+      top: auto;
+      bottom: 0;
+      right: 0;
+      border-radius: 8px 8px 0 0;
     }
   }
 </style>
-
-

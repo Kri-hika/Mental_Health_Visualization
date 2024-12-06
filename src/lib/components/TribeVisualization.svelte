@@ -56,6 +56,55 @@
     return `${wlbLevel}-${d.stressLevel}-${ageGroup}`;
   }
 
+  // Calculate hexagonal grid positions
+  function calculateHexPositions(numClusters) {
+    const positions = [];
+    const hexRadius = 120; // Radius of hexagon
+    const hexWidth = hexRadius * Math.sqrt(3);
+    const hexHeight = hexRadius * 2;
+    
+    // Calculate how many hexagons we need in each row to form a roughly circular pattern
+    const maxRadius = Math.ceil(Math.sqrt(numClusters / Math.PI));
+    let currentPos = { q: 0, r: 0 };
+    
+    // Generate positions in a spiral pattern
+    const directions = [
+      { q: 1, r: 0 }, // right
+      { q: 0, r: 1 }, // down-right
+      { q: -1, r: 1 }, // down-left
+      { q: -1, r: 0 }, // left
+      { q: 0, r: -1 }, // up-left
+      { q: 1, r: -1 }  // up-right
+    ];
+    
+    for (let radius = 0; radius <= maxRadius && positions.length < numClusters; radius++) {
+      if (radius === 0) {
+        positions.push({
+          x: width/2,
+          y: height/2
+        });
+        continue;
+      }
+      
+      // For each side of the hexagon
+      for (let side = 0; side < 6; side++) {
+        // For each step along the side
+        for (let step = 0; step < radius && positions.length < numClusters; step++) {
+          currentPos.q += directions[side].q;
+          currentPos.r += directions[side].r;
+          
+          // Convert axial coordinates to pixel coordinates
+          const x = width/2 + hexWidth * (currentPos.q + currentPos.r/2);
+          const y = height/2 + hexHeight * (currentPos.r * 3/4);
+          
+          positions.push({ x, y });
+        }
+      }
+    }
+    
+    return positions;
+  }
+
   function initializeVisualization() {
     if (!svg || !data || !userData) return;
 
@@ -79,23 +128,19 @@
 
     d3.select(svg).call(zoomBehavior);
 
-    // Calculate cluster centers in a spiral layout
+    // Calculate hexagonal grid positions
+    const hexPositions = calculateHexPositions(Object.keys(clusters).length);
+    
+    // Assign positions to clusters
     const clusterCenters = {};
-    const numClusters = Object.keys(clusters).length;
-    const a = 10; // spiral parameter
-    const b = 2; // spiral parameter
-
     Object.keys(clusters).forEach((clusterName, i) => {
-      const angle = (i * 2 * Math.PI) / numClusters;
-      const radius = a + b * angle;
-      clusterCenters[clusterName] = {
-        x: width/2 + radius * Math.cos(angle) * 50,
-        y: height/2 + radius * Math.sin(angle) * 50
-      };
+      clusterCenters[clusterName] = hexPositions[i];
     });
 
     // Create force simulation
     simulation = d3.forceSimulation(processedData)
+      .alphaDecay(0.01)
+      .velocityDecay(0.6)
       .force('center', d3.forceCenter(width/2, height/2))
       .force('charge', d3.forceManyBody().strength(d => d.isUser ? -100 : -30))
       .force('collision', d3.forceCollide().radius(d => d.isUser ? 15 : 5))
@@ -113,15 +158,13 @@
     const defs = g.append('defs');
     createGradients(defs);
 
-    // Add cluster backgrounds
+    // Add hexagonal backgrounds
     g.append('g')
       .attr('class', 'cluster-backgrounds')
-      .selectAll('circle')
+      .selectAll('path')
       .data(Object.entries(clusterCenters))
-      .join('circle')
-      .attr('cx', d => d[1].x)
-      .attr('cy', d => d[1].y)
-      .attr('r', 60)
+      .join('path')
+      .attr('d', d => createHexPath(d[1].x, d[1].y, 100))
       .attr('fill', (d, i) => `url(#cluster-gradient-${i})`)
       .attr('opacity', 0.1);
 
@@ -135,23 +178,59 @@
       .attr('fill', d => getNodeColor(d))
       .attr('stroke', d => d.isUser ? '#FFD700' : 'none')
       .attr('stroke-width', d => d.isUser ? 2 : 0)
+      .transition()
+      .delay((d, i) => (d.cluster === userData.cluster ? i * 20 : i * 5))
+      .duration(300)
       .attr('opacity', d => d.isUser ? 1 : 0.6);
 
     // Add cluster labels
-    g.append('g')
-      .attr('class', 'labels')
-      .selectAll('text')
-      .data(Object.entries(clusterCenters))
-      .join('text')
-      .attr('x', d => d[1].x)
-      .attr('y', d => d[1].y - 80)
-      .text(d => formatClusterLabel(d[0]))
-      .attr('text-anchor', 'middle')
-      .attr('class', 'cluster-label')
-      .style('opacity', 0);
+g.append('g')
+  .attr('class', 'labels')
+  .selectAll('text')
+  .data(Object.entries(clusterCenters))
+  .join('text')
+  .attr('x', d => d[1].x) // Center horizontally
+  .attr('y', d => {
+    const clusterSize = clusters[d[0]].length;
+    const dynamicOffset = Math.sqrt(clusterSize) * 5; // Offset proportional to cluster size
+    return d[1].y - dynamicOffset - 20; // Position above the cluster
+  })
+  .text(d => formatClusterLabel(d[0])) // Use narrative labels
+  .attr('text-anchor', 'middle') // Center align
+  .attr('class', 'cluster-label')
+  .style('opacity', 1); // Ensure visibility
+
+
+// Resolve label overlaps
+const labelPositions = [];
+g.selectAll('.cluster-label')
+  .attr('y', (d, i, nodes) => {
+    const label = d3.select(nodes[i]);
+    let y = parseFloat(label.attr('y'));
+
+    // Prevent overlap
+    labelPositions.forEach(pos => {
+      if (Math.abs(pos - y) < 30) {
+        y += 30; // Move downward
+      }
+    });
+
+    labelPositions.push(y);
+    return y;
+  });
+
 
     // Initial animation sequence
     startCinematicSequence(processedData, g);
+  }
+
+  function createHexPath(centerX, centerY, radius) {
+    const angles = d3.range(6).map(i => i * Math.PI / 3);
+    const points = angles.map(angle => [
+      centerX + radius * Math.cos(angle),
+      centerY + radius * Math.sin(angle)
+    ]);
+    return `M${points[0][0]},${points[0][1]}${points.slice(1).map(p => `L${p[0]},${p[1]}`).join('')}Z`;
   }
 
   function createGradients(defs) {
@@ -187,35 +266,114 @@
     // Initial state - all nodes invisible
     g.selectAll('circle')
       .attr('opacity', 0);
+    
+    g.selectAll('path')
+      .attr('opacity', 0);
 
-    // 1. Fade in user's node
-    await transition(g.selectAll('circle')
-      .filter(d => d.isUser)
-      .attr('opacity', 1), 1000);
+    // 1. Fade in user's node with a pulse effect
+    const userCircle = g.selectAll('circle').filter(d => d.isUser);
+    await pulseAnimation(userCircle);
 
     // 2. Zoom to user's cluster
     await zoomToNode(userNode, 2);
 
-    // 3. Fade in cluster members
-    await transition(g.selectAll('circle')
-      .filter(d => d.cluster === userNode.cluster)
-      .attr('opacity', d => d.isUser ? 1 : 0.6), 1000);
+    // 3. Fade in user's cluster hex background with ripple effect
+    const userHex = g.selectAll('path')
+      .filter((d, i) => d[0] === userNode.cluster);
+    await rippleAnimation(userHex);
 
-    // 4. Show cluster label
-    await transition(g.selectAll('.cluster-label')
-      .filter(d => d[0] === userNode.cluster)
-      .style('opacity', 1), 1000);
+    // 4. Fade in cluster members with staggered timing
+    const clusterNodes = g.selectAll('circle')
+      .filter(d => d.cluster === userNode.cluster && !d.isUser);
+    await staggeredFadeIn(clusterNodes);
 
-    // 5. Gradually zoom out
-    await zoomToNode(userNode, 1, 2000);
+    // 5. Show cluster label with typing effect
+    const label = g.selectAll('.cluster-label')
+      .filter(d => d[0] === userNode.cluster);
+    await typewriterEffect(label);
 
-    // 6. Fade in all other nodes and labels
+    // 6. Gradually zoom out with smooth transition
+    await zoomToNode(userNode, 0.8, 2000);
+
+    // 7. Reveal other clusters with cascade effect
+    await revealOtherClusters(g, userNode.cluster);
+  }
+
+  async function pulseAnimation(selection) {
+    await selection
+      .transition()
+      .duration(10)
+      .attr('opacity', 1)
+      .attr('r', 12)
+      .transition()
+      .duration(500)
+      .attr('r', 8)
+      .end();
+  }
+
+  async function rippleAnimation(selection) {
+    await selection
+      .attr('opacity', 0)
+      .attr('transform', 'scale(0.8)')
+      .transition()
+      .duration(50)
+      .attr('opacity', 0.1)
+      .attr('transform', 'scale(1)')
+      .end();
+  }
+
+  async function staggeredFadeIn(selection) {
+    const delay = 50;
+    let i = 0;
+    for (const node of selection.nodes()) {
+      await d3.select(node)
+        .transition()
+        .delay(i * delay)
+        .duration(50)
+        .attr('opacity', 0.6)
+        .end();
+      i++;
+    }
+  }
+
+  async function typewriterEffect(selection) {
+    const text = selection.text();
+    selection.text('');
+    
+    await selection
+      .style('opacity', 1)
+      .end();
+    
+    for (let i = 0; i <= text.length; i++) {
+      selection.text(text.slice(0, i));
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+
+  async function revealOtherClusters(g, userCluster) {
+    const otherHexes = g.selectAll('path')
+      .filter((d, i) => d[0] !== userCluster);
+    const otherNodes = g.selectAll('circle')
+      .filter(d => d.cluster !== userCluster);
+    const otherLabels = g.selectAll('.cluster-label')
+      .filter(d => d[0] !== userCluster);
+
     await Promise.all([
-      transition(g.selectAll('circle')
-        .filter(d => d.cluster !== userNode.cluster)
-        .attr('opacity', 0.4), 1500),
-      transition(g.selectAll('.cluster-label')
-        .style('opacity', 0.8), 1500)
+      otherHexes
+        .transition()
+        .duration(1000)
+        .attr('opacity', 0.1)
+        .end(),
+      otherNodes
+        .transition()
+        .duration(1000)
+        .attr('opacity', 0.4)
+        .end(),
+      otherLabels
+        .transition()
+        .duration(1000)
+        .style('opacity', 0.8)
+        .end()
     ]);
   }
 
@@ -253,10 +411,25 @@
     return stressColors[d.stressLevel];
   }
 
-  function formatClusterLabel(cluster) {
-    const [balance, stress, age] = cluster.split('-');
-    return `${age}\n${stress} Stress\n${balance}`;
+ function formatClusterLabel(cluster) {
+  const [balance, stress, age] = cluster.split('-');
+
+  if (balance === 'Balanced' && stress === 'Low' && age === 'Young') {
+    return 'Thriving Youngsters';
   }
+  if (balance === 'Moderate' && stress === 'Medium' && age === 'Mid') {
+    return 'Resilient Workers';
+  }
+  if (balance === 'Strained' && stress === 'High' && age === 'Senior') {
+    return 'Overburdened Seniors';
+  }
+  if (balance === 'Strained' && stress === 'High' && age === 'Mid') {
+    return 'Strained Professionals';
+  }
+
+  return `${balance} | ${stress} Stress | ${age}`; // Fallback for other combinations
+}
+
 
   function ticked(g) {
     g.selectAll('circle')
@@ -271,14 +444,12 @@
       height = rect.height;
       initializeVisualization();
 
-      const resizeObserver = new ResizeObserver(() => {
-        if (container) {
-          const rect = container.getBoundingClientRect();
-          width = rect.width;
-          height = rect.height;
-          initializeVisualization();
-        }
-      });
+      const resizeObserver = new ResizeObserver(_.debounce(() => {
+        const rect = container.getBoundingClientRect();
+        width = rect.width;
+        height = rect.height;
+        initializeVisualization();
+      }, 100));
 
       resizeObserver.observe(container);
       return () => {
@@ -293,7 +464,7 @@
   <svg bind:this={svg} {width} {height}></svg>
   
   <div class="info-panel">
-    <h3>Your Mental Health Tribe</h3>
+    <h3>Where you stand</h3>
     <div class="user-stats">
       <div class="stat">
         <span class="label">Age:</span>
@@ -337,6 +508,7 @@
     height: 100vh;
     position: relative;
     background: var(--color-dark-purple);
+    overflow: hidden;
   }
 
   svg {
@@ -354,12 +526,15 @@
     backdrop-filter: blur(8px);
     width: 280px;
     color: var(--color-off-purple);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(139, 92, 246, 0.1);
   }
 
   h3 {
     color: var(--color-bright-purple);
     font-size: 1.25rem;
     margin-bottom: 1rem;
+    font-weight: 600;
   }
 
   .user-stats {
@@ -367,6 +542,7 @@
     padding: 1rem;
     border-radius: 8px;
     margin-bottom: 1.5rem;
+    border: 1px solid rgba(255, 215, 0, 0.2);
   }
 
   .stat {
@@ -378,6 +554,10 @@
 
   .stat:last-child {
     margin-bottom: 0;
+  }
+
+  .label {
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .value {
@@ -394,6 +574,7 @@
     color: var(--color-bright-purple);
     font-size: 0.875rem;
     margin-bottom: 0.75rem;
+    font-weight: 500;
   }
 
   .legend-item {
@@ -401,17 +582,31 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .color-dot {
     width: 8px;
     height: 8px;
     border-radius: 2px;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
   }
 
   :global(.cluster-label) {
-    fill: var(--color-bright-purple);
-    font-size: 0.875rem;
-    font-weight: 500;
+    fill: #616161; /* Bright contrasting color */
+    font-size: 10px; /* Larger font for better readability */
+    font-weight: normal; /* Make labels stand out */
+    text-anchor: middle; /* Align text to the center */
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5); /* Shadow for better contrast */
+  }
+
+
+  @media (max-width: 768px) {
+    .info-panel {
+      width: calc(100% - 40px);
+      top: auto;
+      bottom: 20px;
+    }
   }
 </style>

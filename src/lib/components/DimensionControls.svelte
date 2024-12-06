@@ -1,51 +1,32 @@
 <!-- src/lib/components/DimensionControls.svelte -->
 <script>
   import { createEventDispatcher } from 'svelte';
+  
+  export let dimension = 'clusters';
   const dispatch = createEventDispatcher();
-  
-  export let dimension = 'worklife';
-  
+
   const dimensions = [
     {
       id: 'clusters',
       label: 'Mental Health Tribes',
-      icon: '🎯',
-      description: 'Explore similar lifestyle and wellbeing patterns'
+      icon: '🌟'
     },
     {
       id: 'worklife',
       label: 'Work-Life Balance',
-      icon: '⚖️',
-      description: 'View balance between work, sleep, and activities'
-    },
-    {
-      id: 'stress',
-      label: 'Stress Levels',
-      icon: '🌊',
-      description: 'Explore stress patterns and contributors'
+      icon: '⚖️'
     },
     {
       id: 'treatment',
-      label: 'Treatment Access',
-      icon: '💊',
-      description: 'Compare treatment seeking behaviors'
+      label: 'Treatment Journey',
+      icon: '🏥'
+    },
+    {
+      id: 'stress',
+      label: 'Stress Patterns',
+      icon: '📊'
     }
   ];
-
-  function handleDimensionChange(newDimension) {
-    // Add transition class before changing dimension
-    document.querySelector('.dynamic-tribe-viz')?.classList.add('transitioning');
-    
-    setTimeout(() => {
-      dimension = newDimension;
-      dispatch('change', newDimension);
-      
-      // Remove transition class after animation
-      setTimeout(() => {
-        document.querySelector('.dynamic-tribe-viz')?.classList.remove('transitioning');
-      }, 500);
-    }, 100);
-  }
 </script>
 
 <div class="dimension-controls">
@@ -53,13 +34,10 @@
     <button
       class="dimension-button"
       class:active={dimension === dim.id}
-      on:click={() => handleDimensionChange(dim.id)}
+      on:click={() => dispatch('change', dim.id)}
     >
       <span class="icon">{dim.icon}</span>
-      <div class="content">
-        <span class="label">{dim.label}</span>
-        <span class="description">{dim.description}</span>
-      </div>
+      <span class="label">{dim.label}</span>
     </button>
   {/each}
 </div>
@@ -68,47 +46,35 @@
   .dimension-controls {
     position: absolute;
     top: 20px;
-    left: 20px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    background: rgba(20, 0, 40, 0.85);
-    padding: 1rem;
-    border-radius: 12px;
-    backdrop-filter: blur(8px);
-    z-index: 100;
-    transition: opacity 0.3s ease;
-  }
-
-  /* When parent is transitioning, fade controls */
-  :global(.transitioning) .dimension-controls {
-    opacity: 0.5;
-    pointer-events: none;
+    gap: 1rem;
+    z-index: 10;
   }
 
   .dimension-button {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    background: transparent;
-    border: 1px solid rgba(157, 78, 221, 0.2);
-    padding: 0.75rem;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(20, 0, 40, 0.85);
+    border: 1px solid rgba(157, 78, 246, 0.2);
     border-radius: 8px;
     color: var(--color-off-purple);
     cursor: pointer;
     transition: all 0.2s ease;
-    width: 100%;
-    text-align: left;
+    backdrop-filter: blur(8px);
   }
 
   .dimension-button:hover {
-    background: rgba(157, 78, 221, 0.1);
     border-color: var(--color-bright-purple);
-    transform: translateX(2px);
+    color: var(--color-bright-purple);
   }
 
   .dimension-button.active {
-    background: rgba(157, 78, 221, 0.2);
+    background: var(--color-bright-purple);
+    color: var(--color-dark-purple);
     border-color: var(--color-bright-purple);
   }
 
@@ -116,72 +82,24 @@
     font-size: 1.25rem;
   }
 
-  .content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
   .label {
-    color: var(--color-bright-purple);
     font-size: 0.875rem;
     font-weight: 500;
   }
 
-  .description {
-    font-size: 0.75rem;
-    opacity: 0.8;
-  }
-
-  /* Animation enhancements */
-  .dimension-button {
-    position: relative;
-    overflow: hidden;
-  }
-
-  .dimension-button::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(circle at center, 
-      var(--color-bright-purple) 0%,
-      transparent 70%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-  }
-
-  .dimension-button:active::after {
-    opacity: 0.1;
-  }
-
-  .dimension-button.active::after {
-    opacity: 0.05;
-  }
-
-  /* Responsive adjustments */
   @media (max-width: 768px) {
     .dimension-controls {
-      top: auto;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      flex-direction: row;
-      max-width: calc(100% - 40px);
-      overflow-x: auto;
-      padding: 0.75rem;
+      flex-direction: column;
+      left: 20px;
+      top: 50%;
+      transform: translateY(-50%);
     }
 
     .dimension-button {
-      flex: 0 0 auto;
-      width: auto;
-      min-width: 140px;
+      padding: 0.5rem;
     }
 
-    .description {
+    .label {
       display: none;
     }
   }

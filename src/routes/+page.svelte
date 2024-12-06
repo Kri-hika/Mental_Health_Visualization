@@ -3,11 +3,12 @@
   import { fade } from 'svelte/transition';
   import MentalHealthViz from '$lib/components/MentalHealthViz.svelte';
   import DynamicTribeViz from '$lib/components/DynamicTribeViz.svelte';
+
   
   export let data;
   
   // State management for visualization flow
-  let currentView = 'initial'; // 'initial', 'tribes', 'explore'
+  let currentView = 'initial'; // 'initial', 'tribes', 'exploration'
   let userData = null;
 
   function handleInitialComplete(event) {

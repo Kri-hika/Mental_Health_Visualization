@@ -1,233 +1,294 @@
-<!-- src/lib/components/InsightPanel.svelte -->
+<!-- InsightPanel.svelte -->
 <script>
-  import { fade } from 'svelte/transition';
-
+  import { onMount } from 'svelte';
+  
   export let processedData;
   export let selectedNode;
   export let hoveredNode;
   export let dimension;
 
-  $: activeNode = selectedNode || hoveredNode;
-  $: insights = generateInsights(processedData, activeNode, dimension);
+  // State for tab management
+  let activeSection = 'overview';
 
-  function generateInsights(data, node, currentDimension) {
-    if (!node) return getDimensionSummary(data, currentDimension);
-    return getNodeInsights(node, currentDimension);
-  }
-
-  function getDimensionSummary(data, dim) {
-    switch(dim) {
-      case 'worklife':
-        const worklifeStats = {
-          balanced: data.filter(d => d.worklifeScore.total > 0.7).length,
-          moderate: data.filter(d => d.worklifeScore.total > 0.4 && d.worklifeScore.total <= 0.7).length,
-          intense: data.filter(d => d.worklifeScore.total <= 0.4).length
-        };
-        return {
-          title: 'Work-Life Balance Overview',
-          stats: [
-            { label: 'Balanced Lifestyle', value: `${Math.round(worklifeStats.balanced / data.length * 100)}%` },
-            { label: 'Moderate Balance', value: `${Math.round(worklifeStats.moderate / data.length * 100)}%` },
-            { label: 'Intense Schedule', value: `${Math.round(worklifeStats.intense / data.length * 100)}%` }
-          ],
-          insights: [
-            'Compare your schedule with others',
-            'See how lifestyle affects mental health',
-            'Find balance opportunities'
-          ]
-        };
-
-      case 'treatment':
-        const treatmentStats = {
-          identified: data.filter(d => d.treatmentStatus.hasCondition).length,
-          treated: data.filter(d => d.treatmentStatus.seeking).length
-        };
-        return {
-          title: 'Treatment Access Insights',
-          stats: [
-            { label: 'Identified Conditions', value: `${Math.round(treatmentStats.identified / data.length * 100)}%` },
-            { label: 'Seeking Treatment', value: `${Math.round(treatmentStats.treated / data.length * 100)}%` },
-            { label: 'Treatment Gap', value: `${Math.round((treatmentStats.identified - treatmentStats.treated) / treatmentStats.identified * 100)}%` }
-          ],
-          insights: [
-            'Understanding treatment barriers',
-            'Identifying care patterns',
-            'Exploring access opportunities'
-          ]
-        };
-
-      case 'stress':
-        const stressStats = {
-          high: data.filter(d => d.stressLevel === 'High').length,
-          medium: data.filter(d => d.stressLevel === 'Medium').length,
-          low: data.filter(d => d.stressLevel === 'Low').length
-        };
-        return {
-          title: 'Stress Level Analysis',
-          stats: [
-            { label: 'High Stress', value: `${Math.round(stressStats.high / data.length * 100)}%` },
-            { label: 'Medium Stress', value: `${Math.round(stressStats.medium / data.length * 100)}%` },
-            { label: 'Low Stress', value: `${Math.round(stressStats.low / data.length * 100)}%` }
-          ],
-          insights: [
-            'Impact of work hours on stress',
-            'Sleep quality correlation',
-            'Physical activity benefits'
-          ]
-        };
-
-      default:
-        return {
-          title: 'Mental Health Tribes',
-          stats: [],
-          insights: [
-            'Explore similar lifestyle patterns',
-            'Connect with your tribe',
-            'Discover shared experiences'
-          ]
-        };
-    }
-  }
-
-  function getNodeInsights(node, dim) {
-    // Generate specific insights for the hovered/selected node
-    const insights = {
-      title: node.isUser ? 'Your Profile' : 'Profile Insights',
-      stats: []
+  // Helper functions for insight generation
+  function getClusterInsights(node) {
+    if (!node) return null;
+    
+    const stressLevel = node.stressLevel;
+    const workHours = node.workHours;
+    const sleepHours = node.sleepHours;
+    
+    return {
+      title: `${node.cluster} Cluster Analysis`,
+      key_metrics: [
+        { label: 'Sleep', value: `${sleepHours}hrs/day` },
+        { label: 'Work', value: `${workHours}hrs/week` },
+        { label: 'Stress', value: stressLevel }
+      ],
+      insights: [
+        workHours > 50 ? 'High workload may contribute to stress' : 'Moderate workload',
+        sleepHours < 6 ? 'Sleep deprivation risk detected' : 'Healthy sleep pattern',
+        node.physicalActivity < 3 ? 'Limited physical activity' : 'Active lifestyle'
+      ]
     };
-
-    switch(dim) {
-      case 'worklife':
-        insights.stats = [
-          { label: 'Sleep Quality', value: `${Math.round(node.worklifeScore.sleep * 100)}%` },
-          { label: 'Work Balance', value: `${Math.round(node.worklifeScore.work * 100)}%` },
-          { label: 'Activity Level', value: `${Math.round(node.worklifeScore.activity * 100)}%` }
-        ];
-        break;
-
-      case 'treatment':
-        insights.stats = [
-          { label: 'Condition', value: node.treatmentStatus.hasCondition ? 'Yes' : 'No' },
-          { label: 'Seeking Help', value: node.treatmentStatus.seeking ? 'Yes' : 'No' },
-          { label: 'Access Score', value: `${Math.round(node.treatmentStatus.accessScore * 100)}%` }
-        ];
-        break;
-
-      case 'stress':
-        insights.stats = [
-          { label: 'Stress Level', value: node.stressLevel },
-          { label: 'Sleep Hours', value: `${node.sleepHours}h` },
-          { label: 'Physical Activity', value: `${node.physicalActivity}h/week` }
-        ];
-        break;
-    }
-
-    return insights;
   }
+
+  function getWorklifeInsights(node) {
+    if (!node) return null;
+    
+    const worklifeScore = node.worklifeScore?.total || 0;
+    const assessment = worklifeScore > 0.7 ? 'Excellent' :
+                      worklifeScore > 0.4 ? 'Moderate' : 'Needs Attention';
+    
+    return {
+      title: 'Work-Life Balance Assessment',
+      score: {
+        value: Math.round(worklifeScore * 100),
+        label: assessment
+      },
+      recommendations: [
+        node.sleepHours < 7 ? 'Improve sleep schedule' : 'Maintain sleep routine',
+        node.workHours > 45 ? 'Consider workload reduction' : 'Good work hours',
+        node.physicalActivity < 5 ? 'Increase physical activity' : 'Good activity level'
+      ]
+    };
+  }
+
+  function getTreatmentInsights(node) {
+    if (!node) return null;
+    
+    const hasMentalHealth = node.treatmentStatus?.hasCondition;
+    const isSeeking = node.treatmentStatus?.seeking;
+    
+    return {
+      title: 'Treatment & Support Analysis',
+      status: {
+        condition: hasMentalHealth ? 'Identified' : 'No Condition',
+        seeking: isSeeking ? 'Seeking Help' : 'Not Seeking Help'
+      },
+      suggestions: [
+        hasMentalHealth && !isSeeking ? 'Consider professional consultation' : '',
+        node.stressLevel === 'High' ? 'High stress - support recommended' : '',
+        node.worklifeScore?.total < 0.4 ? 'Work-life balance support needed' : ''
+      ].filter(Boolean)
+    };
+  }
+
+  function getStressInsights(node) {
+    if (!node) return null;
+    
+    const riskFactors = [];
+    if (node.sleepHours < 6) riskFactors.push('Sleep Deprivation');
+    if (node.workHours > 50) riskFactors.push('High Workload');
+    if (node.physicalActivity < 3) riskFactors.push('Low Physical Activity');
+    
+    return {
+      title: 'Stress Pattern Analysis',
+      level: node.stressLevel,
+      riskFactors,
+      metrics: {
+        sleep: node.sleepHours,
+        work: node.workHours,
+        activity: node.physicalActivity
+      }
+    };
+  }
+
+  // Reactive insights based on dimension and selected/hovered node
+  $: activeNode = selectedNode || hoveredNode;
+  $: insights = dimension === 'clusters' ? getClusterInsights(activeNode) :
+                dimension === 'worklife' ? getWorklifeInsights(activeNode) :
+                dimension === 'treatment' ? getTreatmentInsights(activeNode) :
+                dimension === 'stress' ? getStressInsights(activeNode) : null;
 </script>
 
-<div class="insight-panel" class:has-node={activeNode}>
-  {#if insights}
-    <div class="panel-content" in:fade={{ duration: 200 }}>
-      <h3>{insights.title}</h3>
-      
-      {#if insights.stats.length > 0}
-        <div class="stats-grid">
-          {#each insights.stats as stat}
-            <div class="stat">
-              <span class="label">{stat.label}</span>
-              <span class="value">{stat.value}</span>
-            </div>
-          {/each}
-        </div>
-      {/if}
+<div class="insight-panel">
+  <div class="tabs">
+    <button 
+      class:active={activeSection === 'overview'}
+      on:click={() => activeSection = 'overview'}
+    >
+      Overview
+    </button>
+    <button 
+      class:active={activeSection === 'analysis'}
+      on:click={() => activeSection = 'analysis'}
+    >
+      Detailed Analysis
+    </button>
+  </div>
 
-      {#if insights.insights}
-        <div class="insights-list">
-          {#each insights.insights as insight}
-            <div class="insight-item">
-              <span class="bullet">•</span>
-              <span class="text">{insight}</span>
+  <div class="content">
+    {#if activeSection === 'overview'}
+      {#if insights}
+        <div class="overview-section">
+          <h3>{insights.title}</h3>
+          
+          {#if insights.key_metrics}
+            <div class="metrics-grid">
+              {#each insights.key_metrics as metric}
+                <div class="metric-card">
+                  <span class="label">{metric.label}</span>
+                  <span class="value">{metric.value}</span>
+                </div>
+              {/each}
             </div>
-          {/each}
+          {/if}
+
+          {#if insights.score}
+            <div class="score-display">
+              <div class="score">
+                <span class="value">{insights.score.value}%</span>
+                <span class="label">{insights.score.label}</span>
+              </div>
+            </div>
+          {/if}
+
+          {#if insights.status}
+            <div class="status-section">
+              <div class="status-item">
+                <span class="label">Condition:</span>
+                <span class="value">{insights.status.condition}</span>
+              </div>
+              <div class="status-item">
+                <span class="label">Treatment:</span>
+                <span class="value">{insights.status.seeking}</span>
+              </div>
+            </div>
+          {/if}
         </div>
+      {:else}
+        <p class="placeholder">Select or hover over a node to see insights</p>
       {/if}
-    </div>
-  {/if}
+    {:else}
+      {#if insights}
+        <div class="analysis-section">
+          {#if insights.insights}
+            <div class="insights-list">
+              {#each insights.insights as insight}
+                <div class="insight-item">{insight}</div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if insights.recommendations}
+            <div class="recommendations">
+              <h4>Recommendations</h4>
+              {#each insights.recommendations as rec}
+                <div class="recommendation-item">{rec}</div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if insights.riskFactors}
+            <div class="risk-analysis">
+              <h4>Risk Factors</h4>
+              {#each insights.riskFactors as factor}
+                <div class="risk-factor">{factor}</div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <p class="placeholder">Select a node for detailed analysis</p>
+      {/if}
+    {/if}
+  </div>
 </div>
 
 <style>
   .insight-panel {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    background: rgba(20, 0, 40, 0.85);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: rgba(20, 0, 40, 0.9);
     backdrop-filter: blur(8px);
-    border-radius: 12px;
-    padding: 1.5rem;
-    width: 300px;
-    transition: transform 0.3s ease;
   }
 
-  .panel-content {
-    color: var(--color-off-purple);
-  }
-
-  h3 {
-    color: var(--color-bright-purple);
-    font-size: 1.25rem;
-    margin-bottom: 1.5rem;
-  }
-
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
+  .tabs {
+    display: flex;
     gap: 1rem;
-    margin-bottom: 1.5rem;
+    padding: 1rem;
+    border-bottom: 1px solid rgba(157, 78, 221, 0.2);
   }
 
-  .stat {
+  .tabs button {
+    background: none;
+    border: none;
+    color: var(--color-text);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.2s ease;
+  }
+
+  .tabs button.active {
+    opacity: 1;
+    color: var(--color-bright-purple);
+    border-bottom: 2px solid var(--color-bright-purple);
+  }
+
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .metric-card {
+    background: rgba(157, 78, 221, 0.1);
+    padding: 0.75rem;
+    border-radius: 8px;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    align-items: center;
   }
 
-  .label {
-    font-size: 0.875rem;
-    opacity: 0.8;
+  .score-display {
+    text-align: center;
+    margin: 2rem 0;
   }
 
-  .value {
-    font-size: 1rem;
-    color: var(--color-bright-purple);
-    font-weight: 500;
-  }
-
-  .insights-list {
-    display: flex;
+  .score {
+    display: inline-flex;
     flex-direction: column;
-    gap: 0.75rem;
+    align-items: center;
+    background: rgba(157, 78, 221, 0.1);
+    padding: 2rem;
+    border-radius: 50%;
   }
 
-  .insight-item {
-    display: flex;
-    gap: 0.5rem;
-    font-size: 0.875rem;
-    line-height: 1.4;
-  }
-
-  .bullet {
+  .score .value {
+    font-size: 2rem;
+    font-weight: bold;
     color: var(--color-bright-purple);
   }
 
-  @media (max-width: 768px) {
-    .insight-panel {
-      width: calc(100% - 2rem);
-      max-height: 40vh;
-      top: auto;
-      bottom: 1rem;
-      right: 1rem;
-      overflow-y: auto;
-    }
+  .insights-list, .recommendations, .risk-analysis {
+    margin-top: 1.5rem;
+  }
+
+  .insight-item, .recommendation-item, .risk-factor {
+    background: rgba(157, 78, 221, 0.1);
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+  }
+
+  .placeholder {
+    text-align: center;
+    opacity: 0.7;
+    margin-top: 2rem;
+  }
+
+  h3, h4 {
+    color: var(--color-bright-purple);
+    margin: 0 0 1rem 0;
   }
 </style>

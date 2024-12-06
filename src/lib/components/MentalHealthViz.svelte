@@ -9,6 +9,7 @@
   import DynamicTribeViz from './DynamicTribeViz.svelte';
   import DimensionControls from './DimensionControls.svelte';
   import InsightPanel from './InsightPanel.svelte';
+  import MentalHealthExplorer from './MentalHealthExplorer.svelte';
   
   export let data;
   let vizComponent;
@@ -123,12 +124,12 @@
 {:else if currentStep === 'tribes' && userData !== null}
   <div class="tribe-wrapper" in:fade={{duration: 500}}>
     <TribeVisualization 
-      data={data} 
-      {userData}
-      on:complete={() => {
-        dispatch('complete');
-      }}
-    />
+    data={data} 
+    {userData}
+    on:complete={() => {
+      dispatch('complete');
+    }}
+  />
     <button 
       class="explore-deeper-btn"
       on:click={handleTribeExplore}

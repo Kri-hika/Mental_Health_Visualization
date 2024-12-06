@@ -119,3 +119,5 @@ function calculateSimilarity(user, other) {
     stressMatch * 0.2
   );
 }
+
+

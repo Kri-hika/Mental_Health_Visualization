@@ -14,6 +14,8 @@
   let simulation;
   let width = 1000;
   let height = 700;
+  let isInitialAnimation = true;
+  let tooltip;
 
   // Adjusted margins
   $: margin = {
@@ -43,10 +45,58 @@
     }
   };
 
+  function setupFilters() {
+    const defs = d3.select(svg).append('defs');
+    
+    // Glow effect
+    const filter = defs.append('filter')
+      .attr('id', 'glow')
+      .attr('x', '-50%')
+      .attr('y', '-50%')
+      .attr('width', '200%')
+      .attr('height', '200%');
+
+    filter.append('feGaussianBlur')
+      .attr('stdDeviation', '2')
+      .attr('result', 'coloredBlur');
+
+    const feMerge = filter.append('feMerge');
+    feMerge.append('feMergeNode')
+      .attr('in', 'coloredBlur');
+    feMerge.append('feMergeNode')
+      .attr('in', 'SourceGraphic');
+  }
+
+  function setupTooltip() {
+    tooltip = d3.select(container)
+      .append('div')
+      .attr('class', 'tooltip')
+      .style('opacity', 0)
+      .style('position', 'absolute')
+      .style('pointer-events', 'none')
+      .style('background', 'rgba(20, 0, 20, 0.9)')
+      .style('padding', '8px')
+      .style('border-radius', '4px')
+      .style('font-size', '12px')
+      .style('color', '#fff')
+      .style('z-index', 100);
+  }
+
   function initializeSimulation() {
     if (!browser) return;
     
     if (simulation) simulation.stop();
+
+    // Prepare initial positions for staggered entrance
+    data.forEach((d, i) => {
+      const angle = (i / data.length) * 2 * Math.PI;
+      const radius = Math.min(width, height) * 0.8;
+      d.initialX = width/2 + radius * Math.cos(angle);
+      d.initialY = height/2 + radius * Math.sin(angle);
+      d.x = d.initialX;
+      d.y = d.initialY;
+      d.entered = false;
+    });
     
     simulation = d3.forceSimulation(data)
       .force('charge', d3.forceManyBody().strength(-30))
@@ -55,6 +105,37 @@
       .velocityDecay(0.5)
       .alpha(0.5)
       .on('tick', ticked);
+
+    if (isInitialAnimation) {
+      animateEntrance();
+    }
+  }
+
+  function animateEntrance() {
+    const entranceDuration = 2000;
+    const delayPerParticle = entranceDuration / data.length;
+
+    d3.select(svg)
+      .select('.plot')
+      .selectAll('circle')
+      .data(data)
+      .join('circle')
+      .attr('cx', d => d.initialX)
+      .attr('cy', d => d.initialY)
+      .attr('r', 0)
+      .attr('fill-opacity', 0)
+      .transition()
+      .duration(1000)
+      .delay((d, i) => i * delayPerParticle)
+      .attr('r', 3)
+      .attr('fill-opacity', d => d.mentalHealth === 'Yes' ? 0.8 : 0.5)
+      .on('end', (d) => {
+        d.entered = true;
+        if (d3.select(svg).selectAll('circle').filter(d => !d.entered).empty()) {
+          isInitialAnimation = false;
+          updateLayout(layout);
+        }
+      });
   }
 
   function updateConnectors() {
@@ -181,6 +262,18 @@
               margin.left + plotWidth * 0.7
           ).strength(0.3))
           .force('y', d3.forceY(centerY).strength(0.2));
+
+        // Add condition labels
+        const conditionLabelGroup = d3.select(svg).select('.labels');
+        ['Yes', 'No'].forEach((condition, i) => {
+          const x = margin.left + plotWidth * (i === 0 ? 0.3 : 0.7);
+          conditionLabelGroup.append('text')
+            .attr('class', 'condition-label')
+            .attr('x', x)
+            .attr('y', margin.top - 20)
+            .attr('text-anchor', 'middle')
+            .text(condition === 'Yes' ? 'With Condition' : 'Without Condition');
+        });
         break;
     }
 
@@ -218,16 +311,65 @@
           colorScales.mentalHealth[d.mentalHealth]
       )
       .attr('opacity', d => d.mentalHealth === 'Yes' ? 0.8 : 0.5)
+      .style('filter', d => d.highlight ? 'url(#glow)' : null)
       .on('mouseover', (event, d) => {
+        // Circle animation
         d3.select(event.target)
           .attr('r', 5)
-          .attr('opacity', 1);
+          .attr('opacity', 1)
+          .style('filter', 'url(#glow)');
+        
+        // Ripple effect
+        const circle = d3.select(event.target);
+        const cx = +circle.attr('cx');
+        const cy = +circle.attr('cy');
+        
+        d3.select(svg)
+          .select('.plot')
+          .append('circle')
+          .attr('class', 'ripple')
+          .attr('cx', cx)
+          .attr('cy', cy)
+          .attr('r', 3)
+          .style('stroke', circle.attr('fill'))
+          .style('stroke-width', 2)
+          .style('fill', 'none')
+          .style('opacity', 1)
+          .transition()
+          .duration(1000)
+          .attr('r', 20)
+          .style('opacity', 0)
+          .remove();
+
+        // Tooltip
+        tooltip
+          .style('opacity', 1)
+          .html(`
+            <div style="margin-bottom: 4px;">
+              <strong>${d.occupation}</strong>
+            </div>
+            <div>Status: ${d.mentalHealth}</div>
+            <div>Age: ${d.age}</div>
+            <div>Work Hours: ${d.workHours}h/week</div>
+          `)
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
+
         dispatch('hover', { node: d });
+      })
+      .on('mousemove', (event) => {
+        tooltip
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
       })
       .on('mouseout', (event, d) => {
         d3.select(event.target)
           .attr('r', 3)
-          .attr('opacity', d.mentalHealth === 'Yes' ? 0.8 : 0.5);
+          .attr('opacity', d.mentalHealth === 'Yes' ? 0.8 : 0.5)
+          .style('filter', null);
+        
+        tooltip.style('opacity', 0);
+        
         dispatch('hover', { node: null });
       });
   }
@@ -241,8 +383,9 @@
     };
 
     updateDimensions();
+    setupFilters();
+    setupTooltip();
     initializeSimulation();
-    updateLayout(layout);
     
     const resizeObserver = new ResizeObserver(updateDimensions);
     resizeObserver.observe(container);
@@ -360,5 +503,36 @@
     fill: var(--color-bright-purple);
     font-size: 0.875rem;
     font-weight: 500;
+  }
+
+  :global(.ripple) {
+    pointer-events: none;
+  }
+
+  :global(circle) {
+    transition: r 0.2s ease-out, opacity 0.2s ease-out;
+  }
+
+  :global(.tooltip) {
+    transition: opacity 0.2s ease-out;
+  }
+
+  :global(.connector) {
+    transition: opacity 0.3s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: scale(0);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  :global(.plot circle) {
+    animation: fadeIn 0.5s ease-out forwards;
   }
 </style>
