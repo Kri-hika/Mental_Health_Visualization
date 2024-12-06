@@ -6,13 +6,17 @@
   import DynamicCluster from './Chart/DynamicCluster.svelte';
   import PersonalProfileForm from './PersonalProfileForm.svelte';
   import TribeVisualization from './TribeVisualization.svelte';
+  import DynamicTribeViz from './DynamicTribeViz.svelte';
+  import DimensionControls from './DimensionControls.svelte';
+  import InsightPanel from './InsightPanel.svelte';
   
   export let data;
   let vizComponent;
-  let currentStep = 'clusters'; // 'clusters', 'form', or 'tribes'
+  let currentStep = 'clusters'; // 'clusters', 'form', 'tribes', or 'explore'
   let isTransitioning = false;
   let currentStoryIndex = 0;
   let userData = null;
+  let currentDimension = 'clusters';
 
   $: {
     console.log('Current step:', currentStep);
@@ -70,6 +74,10 @@
     }, 0);
   }
 
+  function handleTribeExplore() {
+    currentStep = 'explore';
+  }
+
   onMount(() => {
     console.log("MentalHealthViz mounted");
     if (vizComponent) {
@@ -117,12 +125,38 @@
     <TribeVisualization 
       data={data} 
       {userData}
+      on:complete={() => {
+        dispatch('complete');
+      }}
+    />
+    <button 
+      class="explore-deeper-btn"
+      on:click={handleTribeExplore}
+    >
+      Explore Deeper Insights →
+    </button>
+  </div>
+{:else if currentStep === 'explore' && userData !== null}
+  <div class="explore-wrapper" in:fade={{duration: 500}}>
+    <DynamicTribeViz
+      {data}
+      {userData}
+      {currentDimension}
+    />
+    <DimensionControls
+      {currentDimension}
+      on:change={(e) => currentDimension = e.detail}
+    />
+    <InsightPanel
+      processedData={data}
+      {userData}
+      dimension={currentDimension}
     />
   </div>
 {/if}
 
 <style>
-  .viz-wrapper, .form-wrapper, .tribe-wrapper {
+  .viz-wrapper, .form-wrapper, .tribe-wrapper, .explore-wrapper {
     width: 100%;
     height: 100vh;
     position: relative;
@@ -154,16 +188,25 @@
     line-height: 1.6;
   }
 
-  .debug {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 10px;
-    font-size: 12px;
-    z-index: 1000;
-    border-radius: 4px;
+  .explore-deeper-btn {
+    position: absolute;
+    bottom: 2rem;
+    right: 2rem;
+    background: var(--color-bright-purple);
+    color: var(--color-dark-purple);
+    border: none;
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 10;
+  }
+
+  .explore-deeper-btn:hover {
+    transform: translateX(4px);
+    background: var(--color-off-purple);
   }
 
   :global(.story-content) {
