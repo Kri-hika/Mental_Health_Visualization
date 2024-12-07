@@ -45,6 +45,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    text-align: center;
     justify-content: center;
     padding: 2rem;
     max-width: 1200px;
