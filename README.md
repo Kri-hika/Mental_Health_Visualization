@@ -65,7 +65,10 @@ This dual-dataset approach enables both:
    ```bash
    npm install
    ```
-3. **Open the Development Server:**
+3. **Run the Development Server:**
+   ```bash
+   npm run dev
+   ```
   - Open your browser at [http://localhost:5173](http://localhost:5173).
 
 
